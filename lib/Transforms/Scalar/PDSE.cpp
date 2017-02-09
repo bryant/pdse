@@ -67,11 +67,9 @@ INITIALIZE_PASS_END(PDSELegacyPass, "pdse", "Partial Dead Store Elimination",
 
 namespace llvm {
 PreservedAnalyses PDSEPass::run(Function &F, FunctionAnalysisManager &AM) {
-  bool Changed = runPDSE(F, AM.getResult<AAManager>(F),
-                         AM.getResult<PostDominatorTreeAnalysis>(F),
-                         AM.getResult<TargetLibraryAnalysis>(F));
-
-  if (Changed)
+  if (!runPDSE(F, AM.getResult<AAManager>(F),
+               AM.getResult<PostDominatorTreeAnalysis>(F),
+               AM.getResult<TargetLibraryAnalysis>(F)))
     return PreservedAnalyses::all();
 
   PreservedAnalyses PA;
