@@ -49,10 +49,10 @@ namespace {
 bool runPDSE(Function &F, AliasAnalysis &AA, const PostDominatorTree &PDT,
              const TargetLibraryInfo &TLI) {
   if (PrintFRG) {
-    dbgs() << "TODO: Print factored redundancy graph.\n";
+    DEBUG(dbgs() << "TODO: Print factored redundancy graph.\n");
     return false;
   } else {
-    dbgs() << "Dummy PDSE pass.\n";
+    DEBUG(dbgs() << "Dummy PDSE pass.\n");
   }
   return false;
 }
