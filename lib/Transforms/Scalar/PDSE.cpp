@@ -20,8 +20,9 @@ bool runPDSE(Function &F, AliasAnalysis &AA, const PostDominatorTree &PDT,
   if (PrintFRG) {
     dbgs() << "TODO: Print factored redundancy graph.\n";
     return false;
-  } else
+  } else {
     dbgs() << "Dummy PDSE pass.\n";
+  }
   return false;
 }
 
