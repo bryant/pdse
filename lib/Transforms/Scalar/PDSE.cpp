@@ -61,7 +61,59 @@ static cl::opt<bool>
              cl::desc("Print the factored redundancy graph of stores."));
 
 namespace {
-bool runPDSE(Function &F, AliasAnalysis &AA, const PostDominatorTree &PDT,
+// Factored redundancy graph representation
+enum struct OccTy {
+  Real,
+  Lambda,
+};
+
+struct Occurrence {
+  BasicBlock *Block;
+  OccTy Type;
+};
+
+struct RealOcc final : public Occurrence {
+  Instruction *Inst;
+  Occurrence *ReprOcc;
+  // ^ Points to this real occurrence's representative occurrence, which is the
+  // closest post-dominating non-redundant RealOcc without an intervening kill.
+
+  RealOcc(Instruction *I, Occurrence *ReprOcc)
+      : Occurrence{I->getParent(), OccTy::Real}, Inst(I), ReprOcc(ReprOcc) {}
+
+  RealOcc()
+      : Occurrence{nullptr, OccTy::Real}, Inst(nullptr), ReprOcc(nullptr) {}
+
+  friend class FRGAnnot;
+};
+
+struct LambdaOcc final : public Occurrence {
+  // Lambda operand representation.
+  struct Incoming {
+    Occurrence *ReprOcc;
+    // ^ Representative occurrence dominating this operand. nullptr = _|_.
+    bool HasRealUse;
+    // ^ Is there a real occurrence on some path from ReprOcc to this operand?
+    // Always false for _|_ operands.
+  };
+  SmallVector<Incoming, 8> Operands;
+
+  // Consult the Kennedy et al. paper for these.
+  bool UpSafe;
+  bool CanBeAnt;
+  bool Later;
+
+  LambdaOcc(BasicBlock *Block)
+      : Occurrence{Block, OccTy::Lambda}, Operands{}, UpSafe(true),
+        CanBeAnt(true), Later(true) {}
+
+  friend class FRGAnnot;
+};
+
+// Faux occurrence used to detect stores to non-escaping memory that are
+// post-dommed by function exit.
+RealOcc DeadOnExit;
+
              const TargetLibraryInfo &TLI) {
   if (PrintFRG) {
     DEBUG(dbgs() << "TODO: Print factored redundancy graph.\n");
