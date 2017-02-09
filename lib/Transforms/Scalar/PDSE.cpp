@@ -6,7 +6,7 @@
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Transforms/Scalar/PDSE.h"
 
-// TODO: require BreakCriticalEdges
+// TODO: Require BreakCriticalEdges
 
 using namespace llvm;
 
