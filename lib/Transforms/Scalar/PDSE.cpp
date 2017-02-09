@@ -6,6 +6,8 @@
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Transforms/Scalar/PDSE.h"
 
+#define DEBUG_TYPE "pdse"
+
 // TODO: Require BreakCriticalEdges
 
 using namespace llvm;
