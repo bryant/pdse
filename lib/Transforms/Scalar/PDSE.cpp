@@ -1,3 +1,19 @@
+// The pass implemented in this file performs partial dead store elimination.
+// "Partial" refers to the ability to transform partial store redundancies into
+// full redundancies by inserting stores at appropriate split points. For
+// instance:
+//
+// bb0:
+//   store i8 undef, i8* %x
+//   br i1 undef label %true, label %false
+// true:
+//   store i8 undef, i8* %x
+//   br label %exit
+// false:
+//   br label %exit
+// exit:
+//   ret void
+
 #include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/Analysis/GlobalsModRef.h"
 #include "llvm/Analysis/PostDominators.h"
