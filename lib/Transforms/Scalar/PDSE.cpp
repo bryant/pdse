@@ -1,4 +1,9 @@
-// The pass implemented in this file performs partial dead store elimination.
+// The pass implemented in this file performs partial dead store elimination as
+// described in:
+//
+//   Register Promotion Sparse Partial Redundancy Elimination of Loads and Store
+//   https://doi.org/10.1145/277650.277659
+//
 // "Partial" refers to the ability to transform partial store redundancies into
 // full redundancies by inserting stores at appropriate split points. For
 // instance:
@@ -13,6 +18,14 @@
 //   br label %exit
 // exit:
 //   ret void
+//
+// The store in bb0 can be made fully redundant by inserting a copy into the
+// false block.
+//
+// For a gentler introduction to PRE, see:
+//
+//   Partial Redundancy Elimination in SSA Form
+//   https://doi.org/10.1145/319301.319348
 
 #include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/Analysis/GlobalsModRef.h"
