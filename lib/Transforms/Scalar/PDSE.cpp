@@ -1,3 +1,15 @@
+#include "llvm/Analysis/AliasAnalysis.h"
+#include "llvm/Analysis/GlobalsModRef.h"
+#include "llvm/Analysis/PostDominators.h"
+#include "llvm/Analysis/TargetLibraryInfo.h"
+#include "llvm/Pass.h"
+#include "llvm/Transforms/Scalar.h"
+#include "llvm/Transforms/Scalar/PDSE.h"
+
+// TODO: require BreakCriticalEdges
+
+using namespace llvm;
+
 namespace {
 bool runPDSE(Function &F, AliasAnalysis &AA, const PostDominatorTree &PDT,
              const TargetLibraryInfo &TLI) {
@@ -22,7 +34,6 @@ public:
 
   void getAnalysisUsage(AnalysisUsage &AU) const override {
     AU.addRequired<PostDominatorTreeWrapperPass>();
-    AU.addRequired<BreakCriticalEdges>();
     AU.addRequired<AAResultsWrapperPass>();
     AU.addRequired<TargetLibraryInfoWrapperPass>();
 
@@ -41,7 +52,6 @@ INITIALIZE_PASS_BEGIN(PDSELegacyPass, "pdse", "Partial Dead Store Elimination",
                       false, false)
 INITIALIZE_PASS_DEPENDENCY(PostDominatorTreeWrapperPass)
 INITIALIZE_PASS_DEPENDENCY(AAResultsWrapperPass)
-INITIALIZE_PASS_DEPENDENCY(BreakCriticalEdges)
 INITIALIZE_PASS_DEPENDENCY(GlobalsAAWrapperPass)
 INITIALIZE_PASS_DEPENDENCY(TargetLibraryInfoWrapperPass)
 INITIALIZE_PASS_END(PDSELegacyPass, "pdse", "Partial Dead Store Elimination",
@@ -49,7 +59,6 @@ INITIALIZE_PASS_END(PDSELegacyPass, "pdse", "Partial Dead Store Elimination",
 
 namespace llvm {
 PreservedAnalyses PDSEPass::run(Function &F, FunctionAnalysisManager &AM) {
-  auto &Unused = AM.getResult<BreakCriticalEdgesPass>(F);
   bool Changed = runPDSE(F, AM.getResult<AAManager>(F),
                          AM.getResult<PostDominatorTreeAnalysis>(F),
                          AM.getResult<TargetLibraryAnalysis>(F));
@@ -59,7 +68,7 @@ PreservedAnalyses PDSEPass::run(Function &F, FunctionAnalysisManager &AM) {
 
   PreservedAnalyses PA;
   PA.preserveSet<CFGAnalyses>();
-  PA.preserveSet<PostDominatorTreeAnalysis>();
+  PA.preserve<PostDominatorTreeAnalysis>();
   PA.preserve<GlobalsAA>();
   return PA;
 }
