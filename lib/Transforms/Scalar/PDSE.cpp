@@ -44,10 +44,12 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/Analysis/GlobalsModRef.h"
 #include "llvm/Analysis/PostDominators.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
+#include "llvm/IR/IntrinsicInst.h"
 #include "llvm/Pass.h"
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Transforms/Scalar/PDSE.h"
@@ -114,7 +116,78 @@ struct LambdaOcc final : public Occurrence {
 // post-dommed by function exit.
 RealOcc DeadOnExit;
 
+// Inherited from old DSE.
+MemoryLocation getLocForWrite(Instruction *Inst) {
+  if (StoreInst *SI = dyn_cast<StoreInst>(Inst))
+    return MemoryLocation::get(SI);
+
+  if (MemIntrinsic *MI = dyn_cast<MemIntrinsic>(Inst)) {
+    MemoryLocation Loc = MemoryLocation::getForDest(MI);
+    return Loc;
+  }
+
+  IntrinsicInst *II = dyn_cast<IntrinsicInst>(Inst);
+  if (!II)
+    return MemoryLocation();
+
+  switch (II->getIntrinsicID()) {
+  default:
+    return MemoryLocation(); // Unhandled intrinsic.
+  case Intrinsic::init_trampoline:
+    return MemoryLocation(II->getArgOperand(0));
+  case Intrinsic::lifetime_end:
+    return MemoryLocation(
+        II->getArgOperand(1),
+        cast<ConstantInt>(II->getArgOperand(0))->getZExtValue());
+  }
+}
+
+struct OccTracker {
+  // Must-aliasing group of store occurrences..
+  struct OccClass {
+    MemoryLocation Loc;
+    DenseSet<Instruction *> Members;
+    DenseSet<BasicBlock *> Blocks;
+  };
+
+  SmallVector<OccClass, 32> Inner;
+
+  OccTracker &push_back(MemoryLocation Loc, AliasAnalysis &AA) {
+    // TODO: Run faster than quadratic.
+    auto OC = find_if(Inner, [&](const OccClass &OC) {
+      return AA.alias(Loc, OC.Loc) == MustAlias;
+    });
+    if (OC == Inner.end())
+      Inner.push_back(OccClass{std::move(Loc), {}, {}});
+    return *this;
+  }
+};
+
+// Wraps an instruction that modrefs and/or mayThrow. Throwables are considered
+// killing occurrences for escaping stores.
+struct MemOrThrow {
+  Instruction *I;
+  bool MemInst;
+};
+
+bool runPDSE(Function &F, AliasAnalysis &AA, const PostDominatorTree &PDT,
              const TargetLibraryInfo &TLI) {
+  OccTracker Worklist;
+  DenseMap<BasicBlock *, SmallVector<MemOrThrow, 8>> PerBlock;
+
+  // Build occurrence classes.
+  for (BasicBlock &BB : F) {
+    for (Instruction &I : BB) {
+      ModRefInfo MRI = AA.getModRefInfo(&I);
+      if (MRI & MRI_ModRef || I.mayThrow()) {
+        PerBlock.insert({&BB, {MemOrThrow{&I, bool(MRI & MRI_ModRef)}}});
+        if (MRI & MRI_Mod)
+          if (MemoryLocation WriteLoc = getLocForWrite(&I))
+            Worklist.push_back(WriteLoc, AA);
+      }
+    }
+  }
+
   if (PrintFRG) {
     DEBUG(dbgs() << "TODO: Print factored redundancy graph.\n");
     return false;
