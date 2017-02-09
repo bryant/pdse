@@ -10,10 +10,18 @@
 
 using namespace llvm;
 
+static cl::opt<bool>
+    PrintFRG("print-pdse", cl::init(false), cl::Hidden,
+             cl::desc("Print the factored redundancy graph of stores."));
+
 namespace {
 bool runPDSE(Function &F, AliasAnalysis &AA, const PostDominatorTree &PDT,
              const TargetLibraryInfo &TLI) {
-  dbgs() << "Dummy PDSE pass.\n";
+  if (PrintFRG) {
+    dbgs() << "TODO: Print factored redundancy graph.\n";
+    return false;
+  } else
+    dbgs() << "Dummy PDSE pass.\n";
   return false;
 }
 
