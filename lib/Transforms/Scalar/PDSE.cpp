@@ -81,6 +81,14 @@ struct Occurrence {
   BasicBlock *Block;
   OccTy Type;
 
+  const RealOcc *asReal() const {
+    return reinterpret_cast<const RealOcc *>(this);
+  }
+
+  const LambdaOcc *asLambda() const {
+    return reinterpret_cast<const LambdaOcc *>(this);
+  }
+
   RealOcc *asReal() { return reinterpret_cast<RealOcc *>(this); }
 
   LambdaOcc *asLambda() { return reinterpret_cast<LambdaOcc *>(this); }
