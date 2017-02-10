@@ -277,8 +277,8 @@ struct RedGraph {
     return Lambdas.count(&BB) ? &Lambdas.find(&BB)->second : nullptr;
   }
 
-  RealOcc &addRealOcc(RealOcc R, const BasicBlock &BB) {
-    std::list<RealOcc> &OccList = (*BlockOccs)[I->getParent()];
+  RealOcc &addRealOcc(RealOcc R, const Instruction &I) {
+    std::list<RealOcc> &OccList = BlockOccs[I.getParent()];
     OccList.push_back(std::move(R));
     return OccList.back();
   }
