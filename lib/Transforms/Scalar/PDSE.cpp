@@ -155,7 +155,7 @@ template <typename State> class PostDomRenamer {
   AliasAnalysis &AA;
   PostDominatorTree &PDT;
 
-  void computeLambaBlocks(SmallVectorImpl<BasicBlock *> &LambdaBlocks) {
+  void computeLambdaBlocks(SmallVectorImpl<BasicBlock *> &LambdaBlocks) {
     // Enumerate def blocks, which are all blocks containing kill and/or real
     // occurrences. TODO: Possibly use CurOcc.Blocks directly.
     SmallPtrSet<BasicBlock *, 8> KillBlocks(CurOcc.Blocks.begin(),
@@ -209,7 +209,7 @@ template <typename State> class PostDomRenamer {
 public:
   DenseMap<const BasicBlock *, LambdaOcc> insertLambdas() {
     SmallVector<BasicBlock *, 8> LambdaBlocks;
-    computeLambaBlocks(LambdaBlocks);
+    computeLambdaBlocks(LambdaBlocks);
 
     DenseMap<const BasicBlock *, LambdaOcc> RetVal;
     for (BasicBlock *BB : LambdaBlocks)
