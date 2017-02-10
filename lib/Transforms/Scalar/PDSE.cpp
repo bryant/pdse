@@ -318,7 +318,7 @@ template <typename T> struct RenameState {
     CrossedRealOcc = false;
   }
 
-  T enterBlock(BasicBlock &BB) const {
+  T enterBlock(const BasicBlock &BB) const {
     // Set the current repr occ to the new block's lambda, if it contains one.
     return FRG->getLambda(BB) ? T{FRG, FRG->getLambda(BB), false} : *this;
   }
@@ -347,7 +347,7 @@ template <typename T> struct RenameState {
 
   void handlePostDomExit() { reinterpret_cast<T *>(this)->updateUpSafety(); }
 
-  void handlePredecessor(BasicBlock &Pred) {
+  void handlePredecessor(const BasicBlock &Pred) {
     if (LambdaOcc *L = FRG->getLambda(Pred))
       L->Operands.push_back({ReprOcc, CrossedRealOcc});
   }
@@ -385,7 +385,7 @@ struct Versioning : RenameState<Versioning> {
       : Base{FRG, ReprOcc, CrossedRealOcc}, OccVersion(OccVersion),
         CurrentVer(CurrentVer) {}
 
-  Versioning enterBlock(BasicBlock &BB) const {
+  Versioning enterBlock(const BasicBlock &BB) const {
     DEBUG(dbgs() << "Entering block " << BB.getName()
                  << (FRG->getLambda(BB) ? " with lambda\n" : "\n"));
     if (LambdaOcc *L = FRG->getLambda(BB)) {
