@@ -235,7 +235,8 @@ public:
     if (Root->getBlock()) {
       // Real and unique exit block.
       Stack.push_back({Root, Root->begin(), RootState});
-      renameBlock(*Stack.back().Node->getBlock(), Stack.back().S);
+      DEBUG(dbgs() << "Entering root " << Root->getBlock()->getName() << "\n");
+      renameBlock(*Root->getBlock(), Stack.back().S);
     } else {
       // Multiple exits and/or infinite loops.
       for (DomTreeNode *N : *Root) {
