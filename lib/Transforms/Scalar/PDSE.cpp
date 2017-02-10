@@ -74,9 +74,16 @@ enum struct OccTy {
   Lambda,
 };
 
+struct RealOcc;
+struct LambdaOcc;
+
 struct Occurrence {
   BasicBlock *Block;
   OccTy Type;
+
+  RealOcc *asReal() { return reinterpret_cast<RealOcc *>(this); }
+
+  LambdaOcc *asLambda() { return reinterpret_cast<LambdaOcc *>(this); }
 };
 
 struct RealOcc final : public Occurrence {
