@@ -312,7 +312,7 @@ template <typename T> struct RenameState {
     // In a post-dom pre-order walk, this is equivalent to encountering any of
     // these while the current repr occ is a lambda.
     if (ReprOcc && ReprOcc->Type == OccTy::Lambda)
-      reinterpret_cast<LambdaOcc *>(ReprOcc)->UpSafe &= CrossedRealOcc;
+      ReprOcc->asLambda()->UpSafe &= CrossedRealOcc;
   }
 
   void kill(Instruction *I) {
