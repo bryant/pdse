@@ -144,7 +144,8 @@ struct MemOrThrow {
   bool MemInst;
 };
 
-// Per-block memory and may-throw instructions, in reverse.
+// Analogous to MemorySSA's AccessList, but for both memory and may-throw
+// instructions, in reverse.
 using BlockInsts = DenseMap<const BasicBlock *, SmallVector<MemOrThrow, 8>>;
 
 // Handles lambda insertion and occurrence renaming by walking a generalized
