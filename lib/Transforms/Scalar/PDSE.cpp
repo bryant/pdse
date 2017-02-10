@@ -256,9 +256,20 @@ public:
       : CurOcc(CurOcc), PerBlock(PerBlock), AA(AA), PDT(PDT) {}
 };
 
-struct BlockInfo {
-  std::list<RealOcc> RealOccs;
-  Optional<LambdaOcc> Lambda;
+struct FRG {
+  DenseMap<const BasicBlock *, std::list<RealOcc>> BlockOccs;
+  // ^ TODO: Figure out iplist for this?
+  DenseMap<const BasicBlock *, LambdaOcc> Lambdas;
+
+  LambdaOcc *getLambda(const BasicBlock &BB) {
+    return Lambdas.count(&BB) ? &Lambdas.find(&BB)->second : nullptr;
+  }
+
+  RealOcc &addRealOcc(RealOcc R, const BasicBlock &BB) {
+    std::list<RealOcc> &OccList = (*BlockOccs)[I->getParent()];
+    OccList.emplace_back(std::move(R));
+    return OccList.back();
+  }
 };
 
 // CRTP.
