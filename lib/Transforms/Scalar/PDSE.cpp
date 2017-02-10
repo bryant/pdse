@@ -267,7 +267,7 @@ struct FRG {
 
   RealOcc &addRealOcc(RealOcc R, const BasicBlock &BB) {
     std::list<RealOcc> &OccList = (*BlockOccs)[I->getParent()];
-    OccList.emplace_back(std::move(R));
+    OccList.push_back(std::move(R));
     return OccList.back();
   }
 };
