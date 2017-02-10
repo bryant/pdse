@@ -294,7 +294,6 @@ template <typename T> struct RenameState {
   bool CrossedRealOcc;
   // ^ Have we crossed a real occurrence since the last non-kill occurrence?
 
-protected:
   void updateUpSafety() {
     // We can immediately conclude a lambda to be up-unsafe if it
     // reverse-reaches any of the following without first crossing a real
@@ -313,7 +312,6 @@ protected:
     CrossedRealOcc = false;
   }
 
-public:
   T enterBlock(BasicBlock &BB) const {
     // Set the current repr occ to the new block's lambda, if it contains one.
     return Lambdas->count(&BB)
@@ -371,7 +369,6 @@ struct Versioning : RenameState<Versioning> {
 
   using Base = RenameState<Versioning>;
 
-protected:
   void kill(Instruction *I) {
     Base::kill(I);
     // Track kill occurrences for the pretty printer.
@@ -379,7 +376,6 @@ protected:
     CurrentVer += 1;
   }
 
-public:
   Versioning(DenseMap<const BasicBlock *, std::list<RealOcc>> *const BlockOccs,
              DenseMap<const BasicBlock *, LambdaOcc> *const Lambdas,
              Occurrence *ReprOcc, bool CrossedRealOcc,
