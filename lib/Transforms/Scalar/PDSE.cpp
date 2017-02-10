@@ -256,6 +256,11 @@ public:
       : CurOcc(CurOcc), PerBlock(PerBlock), AA(AA), PDT(PDT) {}
 };
 
+struct BlockInfo {
+  std::list<RealOcc> RealOccs;
+  Optional<LambdaOcc> Lambda;
+};
+
 // CRTP.
 template <typename T> struct RenameState {
   DenseMap<const BasicBlock *, std::list<RealOcc>> *const BlockOccs;
