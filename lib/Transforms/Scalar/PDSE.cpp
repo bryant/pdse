@@ -100,7 +100,7 @@ struct RealOcc final : public Occurrence {
   // ^ Points to this real occurrence's representative occurrence, which is the
   // closest post-dominating non-redundant RealOcc without an intervening kill.
   // For representative occurrences themselves, this is nullptr.
-  enum { NoKill, UpKill, DownKill } AlsoKills;
+  enum OneSidedKill { NoKill, UpKill, DownKill } AlsoKills;
   // ^ Records whether Inst also acts as a kill occurrence. UpKill =
   // load-then-store (e.g., memmove with aliasing operands); DownKill =
   // store-then-load.
