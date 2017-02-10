@@ -352,7 +352,7 @@ template <typename T> struct RenameState {
   }
 };
 
-// Frugal renaming state for pure PDSE.
+// Frugal renaming state for pure PDSE that omits version numbers.
 struct NonVersioning : public RenameState<NonVersioning> {
   using Base = RenameState<NonVersioning>;
   NonVersioning(
