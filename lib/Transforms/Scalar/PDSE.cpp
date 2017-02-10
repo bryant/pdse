@@ -137,8 +137,8 @@ struct OccClass {
   bool CanEscape;
 };
 
-// Wraps an instruction that modrefs and/or may-throw. We care about may-throws
-// because they count as killing occurrences for escaping stores.
+// Wraps an instruction that modrefs and/or may-throw. May-throws are
+// significant because they count as killing occurrences for escaping stores.
 struct MemOrThrow {
   Instruction *I;
   bool MemInst;
