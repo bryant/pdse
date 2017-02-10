@@ -353,7 +353,7 @@ template <typename T> struct RenameState {
   }
 };
 
-// Frugal renaming state for pure PDSE that omits version numbers.
+// Renaming state for pure PDSE that frugally omits version numbers.
 struct NonVersioning : public RenameState<NonVersioning> {
   using Base = RenameState<NonVersioning>;
   NonVersioning(RedGraph *const FRG, Occurrence *ReprOcc, bool CrossedRealOcc)
