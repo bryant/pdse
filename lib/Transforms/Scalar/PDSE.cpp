@@ -329,18 +329,20 @@ template <typename T> struct RenameState {
   }
 
   void handleMayThrowKill(Instruction *I) {
-    kill(I);
-    updateUpSafety();
+    reinterpret_cast<T *>(this)->kill(I);
+    reinterpret_cast<T *>(this)->updateUpSafety();
   }
 
   void handleAliasingKill(Instruction *I) {
-    kill(I);
-    updateUpSafety();
+    reinterpret_cast<T *>(this)->kill(I);
+    reinterpret_cast<T *>(this)->updateUpSafety();
   }
 
-  void handleAliasingStore(Instruction *I) { updateUpSafety(); }
+  void handleAliasingStore(Instruction *I) {
+    reinterpret_cast<T *>(this)->updateUpSafety();
+  }
 
-  void handlePostDomExit() { updateUpSafety(); }
+  void handlePostDomExit() { reinterpret_cast<T *>(this)->updateUpSafety(); }
 
   void handlePredecessor(BasicBlock &Pred) {
     if (Lambdas->count(&Pred)) {
