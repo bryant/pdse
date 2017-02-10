@@ -269,6 +269,10 @@ struct RedGraph {
   // ^ TODO: Figure out iplist for this?
   DenseMap<const BasicBlock *, LambdaOcc> Lambdas;
 
+  const LambdaOcc *getLambda(const BasicBlock &BB) const {
+    return Lambdas.count(&BB) ? &Lambdas.find(&BB)->second : nullptr;
+  }
+
   LambdaOcc *getLambda(const BasicBlock &BB) {
     return Lambdas.count(&BB) ? &Lambdas.find(&BB)->second : nullptr;
   }
