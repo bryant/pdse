@@ -124,6 +124,7 @@ struct LambdaOcc final : public Occurrence {
     // ^ Is there a real occurrence on some path from ReprOcc to this operand?
     // Always false for _|_ operands.
   };
+
   SmallVector<Operand, 8> Operands;
 
   // Consult the Kennedy et al. paper for these.
@@ -136,8 +137,9 @@ struct LambdaOcc final : public Occurrence {
         CanBeAnt(true), Later(true) {}
 };
 
-// Faux occurrence used to detect stores to non-escaping memory that are
-// post-dommed by function exit.
+// A faux occurrence used to detect stores to non-escaping memory that are
+// redundant with respect to function exit. TODO: Include in version map when
+// needed.
 RealOcc DeadOnExit;
 
 // Maximal group of must-aliasing stores.
