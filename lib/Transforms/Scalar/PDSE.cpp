@@ -178,8 +178,7 @@ template <typename State> class PostDomRenamer {
     RIDF.calculate(LambdaBlocks);
   }
 
-  void renameBlock(BasicBlock &BB, State &S,
-                   DenseMap<const BasicBlock *, LambdaOcc> &Lambdas) {
+  void renameBlock(BasicBlock &BB, State &S) {
     if (PerBlock.count(&BB)) {
       for (const MemOrThrow &MOT : PerBlock.find(&BB)->second) {
         DEBUG(dbgs() << "Visiting " << *MOT.I << "\n");
@@ -203,8 +202,7 @@ template <typename State> class PostDomRenamer {
       S.handlePostDomExit();
 
     for (BasicBlock *Pred : predecessors(&BB))
-      if (Lambdas.count(Pred))
-        S.handlePredecessorLambda(Lambdas.find(Pred)->second);
+      S.handlePredecessor(*Pred);
   }
 
 public:
@@ -218,8 +216,7 @@ public:
     return RetVal;
   }
 
-  void renamePass(const State &RootState,
-                  DenseMap<const BasicBlock *, LambdaOcc> &Lambdas) {
+  void renamePass(const State &RootState) {
     struct StackEntry {
       DomTreeNode *Node;
       DomTreeNode::iterator ChildIt;
@@ -231,12 +228,12 @@ public:
     if (Root->getBlock()) {
       // Real and unique exit block.
       Stack.push_back({Root, Root->begin(), RootState});
-      renameBlock(*Stack.back().Node->getBlock(), Stack.back().S, Lambdas);
+      renameBlock(*Stack.back().Node->getBlock(), Stack.back().S);
     } else {
       // Multiple exits and/or infinite loops.
       for (DomTreeNode *N : *Root) {
         Stack.push_back({N, N->begin(), RootState.enterBlock(*N->getBlock())});
-        renameBlock(*Stack.back().Node->getBlock(), Stack.back().S, Lambdas);
+        renameBlock(*Stack.back().Node->getBlock(), Stack.back().S);
       }
     }
 
@@ -247,7 +244,7 @@ public:
       else {
         DomTreeNode *Cur = *Stack.back().ChildIt++;
         State NewS = Stack.back().S.enterBlock(*Cur->getBlock());
-        renameBlock(*Cur->getBlock(), NewS, Lambdas);
+        renameBlock(*Cur->getBlock(), NewS);
         if (Cur->begin() != Cur->end())
           Stack.push_back({Cur, Cur->begin(), NewS});
       }
@@ -319,8 +316,11 @@ public:
 
   void handlePostDomExit() { updateUpSafety(); }
 
-  void handlePredecessorLambda(LambdaOcc &L) {
-    L.Operands.push_back({ReprOcc, CrossedRealOcc});
+  void handlePredecessor(BasicBlock &Pred) {
+    if (Lambdas->count(&Pred)) {
+      LambdaOcc &L = Lambdas->find(&Pred)->second;
+      L.Operands.push_back({ReprOcc, CrossedRealOcc});
+    }
   }
 };
 
@@ -507,8 +507,7 @@ bool runPDSE(Function &F, AliasAnalysis &AA, PostDominatorTree &PDT,
 
       // TODO: Use a different root renamer state for non-escapes.
       R.renamePass(Versioning(&BlockOccs, &Lambdas, nullptr, false, &OccVersion,
-                              &Occs, 0),
-                   Lambdas);
+                              &Occs, 0));
       dbgs() << "Factored redundancy graph for stores to " << *OC.Loc.Ptr
              << ":\n";
       FRGAnnot Annot(OccVersion, Occs, Lambdas);
