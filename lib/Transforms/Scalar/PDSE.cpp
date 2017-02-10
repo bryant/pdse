@@ -294,9 +294,7 @@ struct RedGraph {
 
 // CRTP.
 template <typename T> struct RenameState {
-  DenseMap<const BasicBlock *, std::list<RealOcc>> *const BlockOccs;
-  // ^ TODO: Figure out iplist for this?
-  DenseMap<const BasicBlock *, LambdaOcc> *const Lambdas;
+  RedGraph *const FRG;
   Occurrence *ReprOcc;
   // ^ Current representative occurrence, or nullptr for _|_.
   bool CrossedRealOcc;
@@ -322,18 +320,15 @@ template <typename T> struct RenameState {
 
   T enterBlock(BasicBlock &BB) const {
     // Set the current repr occ to the new block's lambda, if it contains one.
-    return Lambdas->count(&BB)
-               ? T{BlockOccs, Lambdas, &Lambdas->find(&BB)->second, false}
-               : *this;
+    return FRG->getLambda(BB) ? T{FRG, FRG->getLambda(BB), false} : *this;
   }
 
   RealOcc &handleRealOcc(Instruction *I) {
     CrossedRealOcc = true;
-    std::list<RealOcc> &OccList = (*BlockOccs)[I->getParent()];
-    OccList.push_back(RealOcc(I, ReprOcc));
+    RealOcc &R = FRG->addRealOcc(RealOcc(I, ReprOcc), *I);
     // Current occ is a repr occ if we've just emerged from a kill.
-    ReprOcc = ReprOcc ? ReprOcc : &OccList.back();
-    return OccList.back();
+    ReprOcc = ReprOcc ? ReprOcc : &R;
+    return R;
   }
 
   void handleMayThrowKill(Instruction *I) {
@@ -353,56 +348,49 @@ template <typename T> struct RenameState {
   void handlePostDomExit() { reinterpret_cast<T *>(this)->updateUpSafety(); }
 
   void handlePredecessor(BasicBlock &Pred) {
-    if (Lambdas->count(&Pred)) {
-      LambdaOcc &L = Lambdas->find(&Pred)->second;
-      L.Operands.push_back({ReprOcc, CrossedRealOcc});
-    }
+    if (LambdaOcc *L = FRG->getLambda(Pred))
+      L->Operands.push_back({ReprOcc, CrossedRealOcc});
   }
 };
 
 // Frugal renaming state for pure PDSE that omits version numbers.
 struct NonVersioning : public RenameState<NonVersioning> {
   using Base = RenameState<NonVersioning>;
-  NonVersioning(
-      DenseMap<const BasicBlock *, std::list<RealOcc>> *const BlockOccs,
-      DenseMap<const BasicBlock *, LambdaOcc> *const Lambdas,
-      Occurrence *ReprOcc, bool CrossedRealOcc)
-      : Base{BlockOccs, Lambdas, ReprOcc, CrossedRealOcc} {}
+  NonVersioning(RedGraph *const FRG, Occurrence *ReprOcc, bool CrossedRealOcc)
+      : Base{FRG, ReprOcc, CrossedRealOcc} {}
 };
+
+// Maps basic blocks/instructions to lambdas/real occs and their versions,
+// respectively.
+using VersionMap =
+    DenseMap<const Value *, std::pair<const Occurrence *, unsigned>>;
 
 // Track occurrence version numbers for pretty printing.
 struct Versioning : RenameState<Versioning> {
-  DenseMap<const Occurrence *, unsigned> *const OccVersion;
-  DenseMap<const Instruction *, RealOcc *> *const Occs;
-  // ^ nullptr RealOcc = kill occurrencs.
-  unsigned CurrentVer;
-
   using Base = RenameState<Versioning>;
+
+  VersionMap *const OccVersion;
+  // ^ nullptr Elem.RealOcc = kill occurrencs.
+  unsigned CurrentVer;
 
   void kill(Instruction *I) {
     Base::kill(I);
     // Track kill occurrences for the pretty printer.
-    Occs->insert({I, nullptr});
+    OccVersion->insert({I, {nullptr, -1}});
     CurrentVer += 1;
   }
 
-  Versioning(DenseMap<const BasicBlock *, std::list<RealOcc>> *const BlockOccs,
-             DenseMap<const BasicBlock *, LambdaOcc> *const Lambdas,
-             Occurrence *ReprOcc, bool CrossedRealOcc,
-             DenseMap<const Occurrence *, unsigned> *const OccVersion,
-             DenseMap<const Instruction *, RealOcc *> *const Occs,
-             unsigned CurrentVer)
-      : Base{BlockOccs, Lambdas, ReprOcc, CrossedRealOcc},
-        OccVersion(OccVersion), Occs(Occs), CurrentVer(CurrentVer) {}
+  Versioning(RedGraph *const FRG, Occurrence *ReprOcc, bool CrossedRealOcc,
+             VersionMap *const OccVersion, unsigned CurrentVer)
+      : Base{FRG, ReprOcc, CrossedRealOcc}, OccVersion(OccVersion),
+        CurrentVer(CurrentVer) {}
 
   Versioning enterBlock(BasicBlock &BB) const {
     DEBUG(dbgs() << "Entering block " << BB.getName()
-                 << (Lambdas->count(&BB) ? " with lambda\n" : "\n"));
-    if (Lambdas->count(&BB)) {
-      LambdaOcc &L = Lambdas->find(&BB)->second;
-      OccVersion->insert({&L, CurrentVer + 1});
-      return Versioning(BlockOccs, Lambdas, &L, false, OccVersion, Occs,
-                        CurrentVer + 1);
+                 << (FRG->getLambda(BB) ? " with lambda\n" : "\n"));
+    if (LambdaOcc *L = FRG->getLambda(BB)) {
+      OccVersion->insert({&BB, {L, CurrentVer + 1}});
+      return Versioning(FRG, L, false, OccVersion, CurrentVer + 1);
     }
     return *this;
   }
@@ -410,54 +398,51 @@ struct Versioning : RenameState<Versioning> {
   RealOcc &handleRealOcc(Instruction *I) {
     RealOcc &R = Base::handleRealOcc(I);
     // Assign a version number to the real occ and tag its instruction.
-    OccVersion->insert({&R, CurrentVer});
-    Occs->insert({I, &R});
+    OccVersion->insert({I, {&R, CurrentVer}});
     return R;
   }
 };
 
 struct FRGAnnot final : public AssemblyAnnotationWriter {
-  const DenseMap<const Occurrence *, unsigned> &OccVersion;
-  const DenseMap<const Instruction *, RealOcc *> &Occs;
-  const DenseMap<const BasicBlock *, LambdaOcc> &Lambdas;
+  const RedGraph &FRG;
+  const VersionMap &OccVersion;
 
-  FRGAnnot(const DenseMap<const Occurrence *, unsigned> &OccVersion,
-           const DenseMap<const Instruction *, RealOcc *> &Occs,
-           const DenseMap<const BasicBlock *, LambdaOcc> &Lambdas)
-      : OccVersion(OccVersion), Occs(Occs), Lambdas(Lambdas) {}
+  FRGAnnot(const RedGraph &FRG, const VersionMap &OccVersion)
+      : FRG(FRG), OccVersion(OccVersion) {}
 
   virtual void emitBasicBlockEndAnnot(const BasicBlock *BB,
                                       formatted_raw_ostream &OS) override {
-    if (Lambdas.count(BB)) {
-      const LambdaOcc &L = Lambdas.find(BB)->second;
-      assert(L.Operands.size() > 1 &&
+    if (const LambdaOcc *L = FRG.getLambda(*BB)) {
+      assert(L->Operands.size() > 1 &&
              "IDFCalculator computed an unnecessary lambda.");
       auto PrintOperand = [&](const LambdaOcc::Operand &Op) {
-        if (Op.ReprOcc) {
-          OS << OccVersion.find(Op.ReprOcc)->second;
-          if (Op.HasRealUse)
-            OS << "*";
-        } else
+        if (!Op.ReprOcc)
           OS << "_|_";
+        else if (Op.ReprOcc->Type == OccTy::Real)
+          OS << OccVersion.find(Op.ReprOcc->asReal()->Inst)->second.second;
+        else
+          OS << OccVersion.find(Op.ReprOcc->asLambda()->Block)->second.second;
+        if (Op.HasRealUse)
+          OS << "*";
       };
       OS << "; Lambda(";
-      PrintOperand(L.Operands[0]);
+      PrintOperand(L->Operands[0]);
       for (const LambdaOcc::Operand &Op :
-           make_range(std::next(L.Operands.begin()), L.Operands.end())) {
+           make_range(std::next(L->Operands.begin()), L->Operands.end())) {
         OS << ", ";
         PrintOperand(Op);
       }
-      OS << ") = " << OccVersion.find(&L)->second << "\n";
+      OS << ") = " << OccVersion.find(BB)->second.second << "\n";
     }
   }
 
   virtual void emitInstructionAnnot(const Instruction *I,
                                     formatted_raw_ostream &OS) override {
-    if (Occs.count(I)) {
-      const RealOcc *R = Occs.find(I)->second;
-      if (R)
-        OS << "; " << (R->ReprOcc ? "Real" : "Repr") << "("
-           << OccVersion.find(R)->second << ")\n";
+    if (OccVersion.count(I)) {
+      const auto &RV = OccVersion.find(I)->second;
+      if (const RealOcc *R = RV.first->asReal())
+        OS << "; " << (R->ReprOcc ? "Real" : "Repr") << "(" << RV.second
+           << ")\n";
       else
         OS << "; Kill\n";
     }
@@ -534,17 +519,15 @@ bool runPDSE(Function &F, AliasAnalysis &AA, PostDominatorTree &PDT,
   if (PrintFRG) {
     for (const OccClass &OC : Worklist.Classes) {
       PostDomRenamer<Versioning> R(OC, PerBlock, AA, PDT);
-      DenseMap<const BasicBlock *, LambdaOcc> Lambdas = R.insertLambdas();
-      DenseMap<const BasicBlock *, std::list<RealOcc>> BlockOccs;
-      DenseMap<const Occurrence *, unsigned> OccVersion;
-      DenseMap<const Instruction *, RealOcc *> Occs;
+      VersionMap OccVersion;
+      RedGraph FRG;
+      FRG.Lambdas = R.insertLambdas();
 
       // TODO: Use a different root renamer state for non-escapes.
-      R.renamePass(Versioning(&BlockOccs, &Lambdas, nullptr, false, &OccVersion,
-                              &Occs, 0));
+      R.renamePass(Versioning(&FRG, nullptr, false, &OccVersion, 0));
       dbgs() << "Factored redundancy graph for stores to " << *OC.Loc.Ptr
              << ":\n";
-      FRGAnnot Annot(OccVersion, Occs, Lambdas);
+      FRGAnnot Annot(FRG, OccVersion);
       F.print(dbgs(), &Annot);
       dbgs() << "\n";
     }
