@@ -85,9 +85,16 @@ struct RealOcc final : public Occurrence {
   // ^ Points to this real occurrence's representative occurrence, which is the
   // closest post-dominating non-redundant RealOcc without an intervening kill.
   // For representative occurrences themselves, this is nullptr.
+  enum { NoKill, UpKill, DownKill } AlsoKills;
+  // ^ Records whether Inst also acts as a kill occurrence. UpKill =
+  // load-then-store (e.g., memmove with aliasing operands); DownKill =
+  // store-then-load.
 
   RealOcc(Instruction *I, Occurrence *ReprOcc)
       : Occurrence{I->getParent(), OccTy::Real}, Inst(I), ReprOcc(ReprOcc) {}
+
+  RealOcc(Instruction *I)
+      : Occurrence{I->getParent(), OccTy::Real}, Inst(I), ReprOcc(nullptr) {}
 
   RealOcc()
       : Occurrence{nullptr, OccTy::Real}, Inst(nullptr), ReprOcc(nullptr) {}
