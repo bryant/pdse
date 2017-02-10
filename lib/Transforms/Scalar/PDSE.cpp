@@ -256,7 +256,7 @@ public:
       : CurOcc(CurOcc), PerBlock(PerBlock), AA(AA), PDT(PDT) {}
 };
 
-struct FRG {
+struct RedGraph {
   DenseMap<const BasicBlock *, std::list<RealOcc>> BlockOccs;
   // ^ TODO: Figure out iplist for this?
   DenseMap<const BasicBlock *, LambdaOcc> Lambdas;
