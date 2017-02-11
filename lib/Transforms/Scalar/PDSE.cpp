@@ -31,9 +31,6 @@
 // Differences between the papers and this implementation:
 // - May-throw instructions count as killing occurrences in the factored
 //   redundancy graph of escaping stores;
-// - Occurrence version numbers are only recorded for pretty-printing. For
-//   normal PDSE, it's enough for each real occurrence to point to its
-//   representative.
 // - TODO: Figure out partial overwrite tracking.
 
 #include "llvm/Analysis/AliasAnalysis.h"
