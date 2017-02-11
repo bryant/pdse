@@ -214,7 +214,7 @@ template <typename State> class PostDomRenamer {
           S.handleMayThrowKill(MOT.I);
         else if (MOT.MemInst) {
           if (CurOcc.Members.count(MOT.I))
-            S.handleRealOcc(MOT.I);
+            S.handleRealOcc(MOT.I, CurOcc.Members.find(MOT.I)->second);
           else {
             ModRefInfo MRI = AA.getModRefInfo(MOT.I, CurOcc.Loc);
             if (MRI & MRI_Ref)
@@ -336,12 +336,24 @@ template <typename T> struct RenameState {
     return FRG->getLambda(BB) ? T{FRG, FRG->getLambda(BB), false} : *this;
   }
 
-  RealOcc &handleRealOcc(Instruction *I) {
-    CrossedRealOcc = true;
-    RealOcc &R = FRG->addRealOcc(RealOcc(*I, ReprOcc), *I);
-    // Current occ is a repr occ if we've just emerged from a kill.
-    ReprOcc = ReprOcc ? ReprOcc : &R;
-    return R;
+  RealOcc &handleRealOcc(Instruction *I, RealOcc R) {
+    switch (R.AlsoKills) {
+    case RealOcc::DownKill:
+      reinterpret_cast<T *>(this)->kill(I);
+    case RealOcc::NoKill: {
+      CrossedRealOcc = true;
+      R.ReprOcc = ReprOcc;
+      RealOcc &Ret = FRG->addRealOcc(std::move(R), *I);
+      // Current occ is a repr occ if we've just emerged from a kill.
+      ReprOcc = ReprOcc ? ReprOcc : &Ret;
+      return Ret;
+    }
+    case RealOcc::UpKill:
+      R.ReprOcc = ReprOcc;
+      RealOcc &Ret = FRG->addRealOcc(std::move(R), *I);
+      reinterpret_cast<T *>(this)->kill(I);
+      return Ret;
+    }
   }
 
   void handleMayThrowKill(Instruction *I) {
@@ -409,10 +421,17 @@ struct Versioning : RenameState<Versioning> {
     return *this;
   }
 
-  RealOcc &handleRealOcc(Instruction *I) {
-    RealOcc &R = Base::handleRealOcc(I);
+  RealOcc &handleRealOcc(Instruction *I, RealOcc RR) {
+    RealOcc &R = Base::handleRealOcc(I, RR);
     // Assign a version number to the real occ and tag its instruction.
-    OccVersion->insert({I, {&R, CurrentVer}});
+    if (R.AlsoKills == RealOcc::UpKill) {
+      (*OccVersion)[I] = {&R, *CurrentVer - 1};
+      DEBUG(dbgs() << (*CurrentVer - 1));
+    } else {
+      OccVersion->insert({I, {&R, *CurrentVer}});
+      DEBUG(dbgs() << *CurrentVer);
+    }
+    DEBUG(dbgs() << ", AlsoKills = " << R.AlsoKills << "\n");
     return R;
   }
 };
@@ -454,10 +473,14 @@ struct FRGAnnot final : public AssemblyAnnotationWriter {
                                     formatted_raw_ostream &OS) override {
     if (OccVersion.count(I)) {
       const auto &RV = OccVersion.find(I)->second;
-      if (const RealOcc *R = RV.first->asReal())
+      if (const RealOcc *R = RV.first->asReal()) {
+        if (R->AlsoKills == RealOcc::UpKill)
+          OS << "; Kill\n";
         OS << "; " << (R->ReprOcc ? "Real" : "Repr") << "(" << RV.second
            << ")\n";
-      else
+        if (R->AlsoKills == RealOcc::DownKill)
+          OS << "; Kill\n";
+      } else
         OS << "; Kill\n";
     }
   }
