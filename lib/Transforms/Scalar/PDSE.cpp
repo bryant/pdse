@@ -110,8 +110,15 @@ struct RealOcc final : public Occurrence {
   RealOcc(Instruction &I, Occurrence *ReprOcc)
       : Occurrence{I.getParent(), OccTy::Real}, Inst(&I), ReprOcc(ReprOcc) {}
 
-  RealOcc(Instruction *I)
-      : Occurrence{I->getParent(), OccTy::Real}, Inst(I), ReprOcc(nullptr) {}
+  RealOcc(Instruction &I, OneSidedKill AlsoKills)
+      : Occurrence{I.getParent(), OccTy::Real}, Inst(&I), ReprOcc(nullptr),
+        AlsoKills(AlsoKills) {}
+
+  static RealOcc upKill(Instruction &I) { return RealOcc(I, UpKill); }
+
+  static RealOcc downKill(Instruction &I) { return RealOcc(I, DownKill); }
+
+  static RealOcc noKill(Instruction &I) { return RealOcc(I, NoKill); }
 
   // "Null" real occurrence -- only used to create DeadOnExit.
   RealOcc()
