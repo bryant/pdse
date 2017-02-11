@@ -463,12 +463,17 @@ struct FRGAnnot final : public AssemblyAnnotationWriter {
 };
 
 // Inherited from old DSE.
-Optional<std::pair<MemoryLocation, RealOcc>> makeRealOcc(Instruction &Inst) {
+Optional<std::pair<MemoryLocation, RealOcc>> makeRealOcc(Instruction &Inst,
+                                                         AliasAnalysis &AA) {
   using std::make_pair;
   if (StoreInst *SI = dyn_cast<StoreInst>(&Inst))
-    return make_pair(MemoryLocation::get(SI), RealOcc(Inst, nullptr));
-  if (MemIntrinsic *MI = dyn_cast<MemIntrinsic>(&Inst))
-    return make_pair(MemoryLocation::getForDest(MI), RealOcc(Inst, nullptr));
+    return make_pair(MemoryLocation::get(SI), RealOcc::noKill(Inst));
+  if (MemIntrinsic *MI = dyn_cast<MemIntrinsic>(&Inst)) {
+    auto Loc = MemoryLocation::getForDest(MI);
+    return make_pair(Loc, (AA.getModRefInfo(MI, Loc) & MRI_Ref
+                               ? RealOcc::upKill
+                               : RealOcc::noKill)(Inst));
+  }
   return None;
 }
 
@@ -522,7 +527,7 @@ bool runPDSE(Function &F, AliasAnalysis &AA, PostDominatorTree &PDT,
         DEBUG(dbgs() << "Interesting: " << I << "\n");
         PerBlock[&BB].push_back({&I, bool(MRI & MRI_ModRef)});
         if (MRI & MRI_Mod)
-          if (auto LocOcc = makeRealOcc(I))
+          if (auto LocOcc = makeRealOcc(I, AA))
             Worklist.push_back(LocOcc->first, I, AA);
       }
     }
