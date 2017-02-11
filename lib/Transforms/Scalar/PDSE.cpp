@@ -46,8 +46,10 @@
 
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/Analysis/AliasAnalysis.h"
+#include "llvm/Analysis/CaptureTracking.h"
 #include "llvm/Analysis/GlobalsModRef.h"
 #include "llvm/Analysis/IteratedDominanceFrontier.h"
+#include "llvm/Analysis/MemoryBuiltins.h"
 #include "llvm/Analysis/PostDominators.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/IR/AssemblyAnnotationWriter.h"
