@@ -113,8 +113,10 @@ struct RealOcc final : public Occurrence {
   RealOcc(Instruction *I)
       : Occurrence{I->getParent(), OccTy::Real}, Inst(I), ReprOcc(nullptr) {}
 
+  // "Null" real occurrence -- only used to create DeadOnExit.
   RealOcc()
-      : Occurrence{nullptr, OccTy::Real}, Inst(nullptr), ReprOcc(nullptr) {}
+      : Occurrence{nullptr, OccTy::Real}, Inst(nullptr), ReprOcc(nullptr),
+        AlsoKills(NoKill) {}
 };
 
 struct LambdaOcc final : public Occurrence {
