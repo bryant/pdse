@@ -384,17 +384,17 @@ struct Versioning : RenameState<Versioning> {
 
   VersionMap *const OccVersion;
   // ^ nullptr Elem.RealOcc = kill occurrencs.
-  unsigned CurrentVer;
+  unsigned *const CurrentVer;
 
   void kill(Instruction *I) {
     Base::kill(I);
     // Track kill occurrences for the pretty printer.
     OccVersion->insert({I, {nullptr, -1}});
-    CurrentVer += 1;
+    *CurrentVer += 1;
   }
 
   Versioning(RedGraph *const FRG, Occurrence *ReprOcc, bool CrossedRealOcc,
-             VersionMap *const OccVersion, unsigned CurrentVer)
+             VersionMap *const OccVersion, unsigned *const CurrentVer)
       : Base{FRG, ReprOcc, CrossedRealOcc}, OccVersion(OccVersion),
         CurrentVer(CurrentVer) {}
 
@@ -402,8 +402,9 @@ struct Versioning : RenameState<Versioning> {
     DEBUG(dbgs() << "Entering block " << BB.getName()
                  << (FRG->getLambda(BB) ? " with lambda\n" : "\n"));
     if (LambdaOcc *L = FRG->getLambda(BB)) {
-      OccVersion->insert({&BB, {L, CurrentVer + 1}});
-      return Versioning(FRG, L, false, OccVersion, CurrentVer + 1);
+      *CurrentVer += 1;
+      OccVersion->insert({&BB, {L, *CurrentVer}});
+      return Versioning(FRG, L, false, OccVersion, CurrentVer);
     }
     return *this;
   }
@@ -544,9 +545,10 @@ bool runPDSE(Function &F, AliasAnalysis &AA, PostDominatorTree &PDT,
       VersionMap OccVersion;
       RedGraph FRG;
       FRG.Lambdas = R.insertLambdas();
+      unsigned Ver = 0;
 
       // TODO: Use a different root renamer state for non-escapes.
-      R.renamePass(Versioning(&FRG, nullptr, false, &OccVersion, 0));
+      R.renamePass(Versioning(&FRG, nullptr, false, &OccVersion, &Ver));
       dbgs() << "Factored redundancy graph for stores to " << *OC.Loc.Ptr
              << ":\n";
       FRGAnnot Annot(FRG, OccVersion);
