@@ -474,12 +474,13 @@ struct FRGAnnot final : public AssemblyAnnotationWriter {
     if (OccVersion.count(I)) {
       const auto &RV = OccVersion.find(I)->second;
       if (const RealOcc *R = RV.first->asReal()) {
+        OS << "; ";
         if (R->AlsoKills == RealOcc::UpKill)
-          OS << "; Kill\n";
-        OS << "; " << (R->ReprOcc ? "Real" : "Repr") << "(" << RV.second
-           << ")\n";
+          OS << "Kill + ";
+        OS << (R->ReprOcc ? "Real" : "Repr") << "(" << RV.second << ")";
         if (R->AlsoKills == RealOcc::DownKill)
-          OS << "; Kill\n";
+          OS << " + Kill";
+        OS << "\n";
       } else
         OS << "; Kill\n";
     }
