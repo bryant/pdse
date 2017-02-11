@@ -53,7 +53,7 @@
 using namespace llvm;
 
 static cl::opt<bool>
-    PrintFRG("print-pdse", cl::init(false), cl::Hidden,
+    PrintFRG("print-frg", cl::init(false), cl::Hidden,
              cl::desc("Print the factored redundancy graph of stores."));
 
 namespace {
