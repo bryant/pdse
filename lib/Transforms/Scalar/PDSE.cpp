@@ -157,7 +157,7 @@ RealOcc DeadOnExit;
 struct OccClass {
   MemoryLocation Loc;
   // ^ The memory location that each member writes to.
-  DenseSet<const Instruction *> Members;
+  DenseMap<const Instruction *, RealOcc> Members;
   // ^ Used to avoid calling getModRefInfo on known real occs during renaming.
   DenseSet<BasicBlock *> Blocks;
   // ^ Set of BasicBlocks inhabited by members. Used to compute lambda
@@ -480,7 +480,8 @@ Optional<std::pair<MemoryLocation, RealOcc>> makeRealOcc(Instruction &Inst,
 struct OccTracker {
   SmallVector<OccClass, 32> Classes;
 
-  OccTracker &push_back(MemoryLocation Loc, Instruction &I, AliasAnalysis &AA) {
+  OccTracker &push_back(MemoryLocation Loc, RealOcc R, Instruction &I,
+                        AliasAnalysis &AA) {
     // TODO: Run faster than quadratic.
     auto OC = find_if(Classes, [&](const OccClass &OC) {
       return AA.alias(Loc, OC.Loc) == MustAlias;
@@ -488,10 +489,13 @@ struct OccTracker {
     if (OC == Classes.end()) {
       DEBUG(dbgs() << "New real occ class: " << I << "\n");
       // TODO: Analyze escapability.
-      Classes.push_back({std::move(Loc), {&I}, {I.getParent()}, true});
+      using MemberMap = decltype(OccClass::Members);
+      Classes.push_back(
+          OccClass{std::move(Loc), MemberMap{}, {I.getParent()}, true});
+      Classes.back().Members.insert({&I, std::move(R)});
     } else {
       DEBUG(dbgs() << "Collected real occ: " << I << "\n");
-      OC->Members.insert(&I);
+      OC->Members.insert({&I, std::move(R)});
       OC->Blocks.insert(I.getParent());
     }
     return *this;
@@ -528,7 +532,8 @@ bool runPDSE(Function &F, AliasAnalysis &AA, PostDominatorTree &PDT,
         PerBlock[&BB].push_back({&I, bool(MRI & MRI_ModRef)});
         if (MRI & MRI_Mod)
           if (auto LocOcc = makeRealOcc(I, AA))
-            Worklist.push_back(LocOcc->first, I, AA);
+            Worklist.push_back(std::move(LocOcc->first),
+                               std::move(LocOcc->second), I, AA);
       }
     }
   }
