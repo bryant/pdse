@@ -1,4 +1,4 @@
-// This passperforms a variation of partial dead store elimination as described
+// This pass performs a variation of partial dead store elimination as described
 // in:
 //
 //   Register Promotion Sparse Partial Redundancy Elimination of Loads and Store
