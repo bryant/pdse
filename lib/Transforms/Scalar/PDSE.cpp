@@ -107,8 +107,8 @@ struct RealOcc final : public Occurrence {
   // load-then-store (e.g., memmove with aliasing operands); DownKill =
   // store-then-load.
 
-  RealOcc(Instruction *I, Occurrence *ReprOcc)
-      : Occurrence{I->getParent(), OccTy::Real}, Inst(I), ReprOcc(ReprOcc) {}
+  RealOcc(Instruction &I, Occurrence *ReprOcc)
+      : Occurrence{I.getParent(), OccTy::Real}, Inst(&I), ReprOcc(ReprOcc) {}
 
   RealOcc(Instruction *I)
       : Occurrence{I->getParent(), OccTy::Real}, Inst(I), ReprOcc(nullptr) {}
@@ -331,7 +331,7 @@ template <typename T> struct RenameState {
 
   RealOcc &handleRealOcc(Instruction *I) {
     CrossedRealOcc = true;
-    RealOcc &R = FRG->addRealOcc(RealOcc(I, ReprOcc), *I);
+    RealOcc &R = FRG->addRealOcc(RealOcc(*I, ReprOcc), *I);
     // Current occ is a repr occ if we've just emerged from a kill.
     ReprOcc = ReprOcc ? ReprOcc : &R;
     return R;
