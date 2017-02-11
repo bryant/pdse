@@ -463,29 +463,13 @@ struct FRGAnnot final : public AssemblyAnnotationWriter {
 };
 
 // Inherited from old DSE.
-MemoryLocation getLocForWrite(Instruction *Inst) {
-  if (StoreInst *SI = dyn_cast<StoreInst>(Inst))
-    return MemoryLocation::get(SI);
-
-  if (MemIntrinsic *MI = dyn_cast<MemIntrinsic>(Inst)) {
-    MemoryLocation Loc = MemoryLocation::getForDest(MI);
-    return Loc;
-  }
-
-  IntrinsicInst *II = dyn_cast<IntrinsicInst>(Inst);
-  if (!II)
-    return MemoryLocation();
-
-  switch (II->getIntrinsicID()) {
-  default:
-    return MemoryLocation(); // Unhandled intrinsic.
-  case Intrinsic::init_trampoline:
-    return MemoryLocation(II->getArgOperand(0));
-  case Intrinsic::lifetime_end:
-    return MemoryLocation(
-        II->getArgOperand(1),
-        cast<ConstantInt>(II->getArgOperand(0))->getZExtValue());
-  }
+Optional<std::pair<MemoryLocation, RealOcc>> makeRealOcc(Instruction &Inst) {
+  using std::make_pair;
+  if (StoreInst *SI = dyn_cast<StoreInst>(&Inst))
+    return make_pair(MemoryLocation::get(SI), RealOcc(Inst, nullptr));
+  if (MemIntrinsic *MI = dyn_cast<MemIntrinsic>(&Inst))
+    return make_pair(MemoryLocation::getForDest(MI), RealOcc(Inst, nullptr));
+  return None;
 }
 
 struct OccTracker {
@@ -538,8 +522,8 @@ bool runPDSE(Function &F, AliasAnalysis &AA, PostDominatorTree &PDT,
         DEBUG(dbgs() << "Interesting: " << I << "\n");
         PerBlock[&BB].push_back({&I, bool(MRI & MRI_ModRef)});
         if (MRI & MRI_Mod)
-          if (MemoryLocation WriteLoc = getLocForWrite(&I))
-            Worklist.push_back(WriteLoc, I, AA);
+          if (auto LocOcc = makeRealOcc(I))
+            Worklist.push_back(LocOcc->first, I, AA);
       }
     }
   }
