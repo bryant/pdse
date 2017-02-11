@@ -266,6 +266,7 @@ public:
     assignID(R);
     switch (R.AlsoKills) {
     case RealOcc::DownKill:
+      // DownKill means a kill on the higher-RPO-index side of the real occ.
       kill(nullptr);
     case RealOcc::NoKill: {
       CrossedRealOcc = true;
