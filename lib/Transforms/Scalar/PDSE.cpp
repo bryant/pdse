@@ -498,15 +498,29 @@ struct OccTracker {
   }
 };
 
+bool nonEscapingOnUnwind(Instruction &I, const TargetLibraryInfo &TLI) {
+  return isa<AllocaInst>(&I) ||
+         (isAllocLikeFn(&I, &TLI) && !PointerMayBeCaptured(&I, false, true));
+}
+
 bool runPDSE(Function &F, AliasAnalysis &AA, PostDominatorTree &PDT,
              const TargetLibraryInfo &TLI) {
   OccTracker Worklist;
   BlockInsts PerBlock;
+  DenseSet<const Value *> NonEscapes;
+
+  // Record non-escaping args.
+  for (Argument &Arg : F.args())
+    if (Arg.hasByValOrInAllocaAttr())
+      NonEscapes.insert(&Arg);
 
   // Simultaneously collect occurrence classes and build reversed lists of
   // interesting instructions per block.
   for (BasicBlock &BB : F) {
     for (Instruction &I : reverse(BB)) {
+      if (nonEscapingOnUnwind(I, TLI))
+        NonEscapes.insert(&I);
+
       ModRefInfo MRI = AA.getModRefInfo(&I);
       if (MRI & MRI_ModRef || I.mayThrow()) {
         DEBUG(dbgs() << "Interesting: " << I << "\n");
