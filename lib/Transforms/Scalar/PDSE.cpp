@@ -531,9 +531,9 @@ bool runPDSE(Function &F, AliasAnalysis &AA, PostDominatorTree &PDT,
     if (Arg.hasByValOrInAllocaAttr())
       NonEscapes.insert(&Arg);
 
-  // Roll through every instruction to collect occurrence classes, build
-  // reversed lists of interesting instructions per block, and enumerate all
-  // non-escaping memory locations.
+  // Roll through every instruction to collect groups of must-alias stores,
+  // build reversed lists of interesting instructions per block, and enumerate
+  // all non-escaping memory locations.
   for (BasicBlock &BB : F) {
     for (Instruction &I : reverse(BB)) {
       if (nonEscapingOnUnwind(I, TLI)) {
