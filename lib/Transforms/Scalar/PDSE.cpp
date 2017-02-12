@@ -177,6 +177,20 @@ struct RedGraph {
     addRealOcc(std::move(Starter));
   }
 
+  void setEscapesReturned(const DenseSet<const Value *> &NonEscapes,
+                          const DenseSet<const Value *> &Returns) {
+    assert(FRG.Loc.Ptr &&
+           "Real occurrences must store to an analyzable memory address.");
+    const DataLayout &DL = FRG.Loc.Ptr.getModule()->getDataLayout();
+    const Value *Und = GetUnderlyingObject(FRG.Loc.Ptr, DL);
+    Returned = Returns.count(Und);
+    Escapes = !NonEscapes.count(Und) && !([&]() {
+      SmallVector<Value *, 4> Unds;
+      GetUnderlyingObjects(const_cast<Value *>(Und), Unds, DL);
+      return all_of(Unds, [&](Value *V) { return NonEscapes.count(V); });
+    })();
+  }
+
   const LambdaOcc *getLambda(const BasicBlock &BB) const {
     return Lambdas.count(&BB) ? &Lambdas.find(&BB)->second : nullptr;
   }
@@ -567,14 +581,7 @@ bool runPDSE(Function &F, AliasAnalysis &AA, PostDominatorTree &PDT,
 
       // Now that NonEscapes and Returned are complete, compute escapability and
       // return-ness.
-      const DataLayout &DL = F.getParent()->getDataLayout();
-      const Value *Und = GetUnderlyingObject(FRG.Loc.Ptr, DL);
-      FRG.Returned = Returns.count(Und);
-      FRG.Escapes = !NonEscapes.count(Und) && !([&]() {
-        SmallVector<Value *, 4> Unds;
-        GetUnderlyingObjects(const_cast<Value *>(Und), Unds, DL);
-        return all_of(Unds, [&](Value *V) { return NonEscapes.count(V); });
-      })();
+      FRG.setEscapesReturned(NonEscapes, Returned);
 
       PostDomRenamer(PerBlock, AA, PDT).insertLambdas(FRG).renamePass(FRG);
       FRGAnnot Annot(FRG);
