@@ -117,16 +117,16 @@ struct RealOcc final : public Occurrence {
       : Occurrence{-1u, I.getParent(), OccTy::Real}, Inst(&I), ReprOcc(nullptr),
         AlsoKills(AlsoKills) {}
 
+  // "Null" real occurrence -- only used to create DeadOnExit.
+  RealOcc()
+      : Occurrence{0, nullptr, OccTy::Real}, Inst(nullptr), ReprOcc(nullptr),
+        AlsoKills(NoKill) {}
+
   static RealOcc upKill(Instruction &I) { return RealOcc(I, UpKill); }
 
   static RealOcc downKill(Instruction &I) { return RealOcc(I, DownKill); }
 
   static RealOcc noKill(Instruction &I) { return RealOcc(I, NoKill); }
-
-  // "Null" real occurrence -- only used to create DeadOnExit.
-  RealOcc()
-      : Occurrence{0, nullptr, OccTy::Real}, Inst(nullptr), ReprOcc(nullptr),
-        AlsoKills(NoKill) {}
 };
 
 struct LambdaOcc final : public Occurrence {
