@@ -225,13 +225,6 @@ struct RedGraph {
   }
 };
 
-// Tags an instruction that modrefs and/or may-throw. May-throws are
-// significant because they count as killing occurrences for escaping stores.
-struct MemOrThrow {
-  Instruction *I;
-  bool MemInst;
-};
-
 struct RenameState {
   RedGraph *FRG;
   unsigned *NextID;
@@ -314,6 +307,13 @@ public:
     if (LambdaOcc *L = FRG->getLambda(Pred))
       L->Operands.push_back({ReprOcc, CrossedRealOcc});
   }
+};
+
+// Tags an instruction that modrefs and/or may-throw. May-throws are
+// significant because they count as killing occurrences for escaping stores.
+struct MemOrThrow {
+  Instruction *I;
+  bool MemInst;
 };
 
 // Analogous to MemorySSA's AccessList, but for both memory and may-throw
