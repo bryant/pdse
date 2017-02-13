@@ -47,12 +47,17 @@
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/Analysis/GlobalsModRef.h"
+#include "llvm/Analysis/IteratedDominanceFrontier.h"
 #include "llvm/Analysis/PostDominators.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
+#include "llvm/IR/AssemblyAnnotationWriter.h"
 #include "llvm/IR/IntrinsicInst.h"
 #include "llvm/Pass.h"
+#include "llvm/Support/FormattedStream.h"
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Transforms/Scalar/PDSE.h"
+
+#include <list>
 
 #define DEBUG_TYPE "pdse"
 
@@ -113,6 +118,310 @@ struct LambdaOcc final : public Occurrence {
 // post-dommed by function exit.
 RealOcc DeadOnExit;
 
+// Maximal group of must-aliasing stores.
+struct OccClass {
+  MemoryLocation Loc;
+  // ^ The memory location that each member writes to.
+  DenseSet<const Instruction *> Members;
+  // ^ Used to avoid calling getModRefInfo on known real occs during renaming.
+  DenseSet<BasicBlock *> Blocks;
+  // ^ Set of BasicBlocks inhabited by members. Used to compute lambda
+  // placement.
+  bool CanEscape;
+};
+
+// Wraps an instruction that modrefs and/or may-throw. We care about may-throws
+// because they count as killing occurrences for escaping stores.
+struct MemOrThrow {
+  Instruction *I;
+  bool MemInst;
+};
+
+// Per-block memory and may-throw instructions, in reverse.
+using BlockInsts = DenseMap<const BasicBlock *, SmallVector<MemOrThrow, 8>>;
+
+// Handles lambda insertion and occurrence renaming by walking a generalized
+// renamer state over the post-dom tree.
+template <typename State> class PostDomRenamer {
+  const OccClass &CurOcc;
+  const BlockInsts &PerBlock;
+  AliasAnalysis &AA;
+  PostDominatorTree &PDT;
+
+  void computeLambaBlocks(SmallVectorImpl<BasicBlock *> &LambdaBlocks) {
+    // Enumerate def blocks, which are all blocks containing kill and/or real
+    // occurrences. TODO: Possibly use CurOcc.Blocks directly.
+    SmallPtrSet<BasicBlock *, 8> KillBlocks(CurOcc.Blocks.begin(),
+                                            CurOcc.Blocks.end());
+
+    // Account for kill-only blocks; if it contains a real occ, we already know
+    // about it.
+    for (const BlockInsts::value_type &BB : PerBlock)
+      if (CurOcc.Blocks.count(const_cast<BasicBlock *>(BB.first)) == 0)
+        for (const MemOrThrow &MOT : BB.second)
+          if (MOT.MemInst && AA.getModRefInfo(MOT.I, CurOcc.Loc) & MRI_Ref) {
+            KillBlocks.insert(const_cast<BasicBlock *>(BB.first));
+            break;
+          }
+
+    // Compute lambdas.
+    ReverseIDFCalculator RIDF(PDT);
+    RIDF.setDefiningBlocks(KillBlocks);
+    RIDF.calculate(LambdaBlocks);
+  }
+
+  void renameBlock(BasicBlock &BB, State &S,
+                   DenseMap<const BasicBlock *, LambdaOcc> &Lambdas) {
+    if (PerBlock.count(&BB)) {
+      for (const MemOrThrow &MOT : PerBlock.find(&BB)->second) {
+        DEBUG(dbgs() << "Visiting " << *MOT.I << "\n");
+        if (MOT.I->mayThrow() && CurOcc.CanEscape)
+          S.handleMayThrowKill(MOT.I);
+        else if (MOT.MemInst) {
+          if (CurOcc.Members.count(MOT.I))
+            S.handleRealOcc(MOT.I);
+          else {
+            ModRefInfo MRI = AA.getModRefInfo(MOT.I, CurOcc.Loc);
+            if (MRI & MRI_Ref)
+              S.handleAliasingKill(MOT.I);
+            else if (MRI & MRI_Mod)
+              S.handleAliasingStore(MOT.I);
+          }
+        }
+      }
+    }
+
+    if (&BB == &BB.getParent()->getEntryBlock())
+      S.handlePostDomExit();
+
+    for (BasicBlock *Pred : predecessors(&BB))
+      if (Lambdas.count(Pred))
+        S.handlePredecessorLambda(Lambdas.find(Pred)->second);
+  }
+
+public:
+  DenseMap<const BasicBlock *, LambdaOcc> insertLambdas() {
+    SmallVector<BasicBlock *, 8> LambdaBlocks;
+    computeLambaBlocks(LambdaBlocks);
+
+    DenseMap<const BasicBlock *, LambdaOcc> RetVal;
+    for (BasicBlock *BB : LambdaBlocks)
+      RetVal.insert({BB, LambdaOcc(BB)});
+    return RetVal;
+  }
+
+  void renamePass(const State &RootState,
+                  DenseMap<const BasicBlock *, LambdaOcc> &Lambdas) {
+    struct StackEntry {
+      DomTreeNode *Node;
+      DomTreeNode::iterator ChildIt;
+      State S;
+    };
+
+    SmallVector<StackEntry, 16> Stack;
+    DomTreeNode *Root = PDT.getRootNode();
+    if (Root->getBlock()) {
+      // Real and unique exit block.
+      Stack.push_back({Root, Root->begin(), RootState});
+      renameBlock(*Stack.back().Node->getBlock(), Stack.back().S, Lambdas);
+    } else {
+      // Multiple exits and/or infinite loops.
+      for (DomTreeNode *N : *Root) {
+        Stack.push_back({N, N->begin(), RootState.enterBlock(*N->getBlock())});
+        renameBlock(*Stack.back().Node->getBlock(), Stack.back().S, Lambdas);
+      }
+    }
+
+    // Visit blocks in post-dom pre-order
+    while (!Stack.empty()) {
+      if (Stack.back().ChildIt == Stack.back().Node->end())
+        Stack.pop_back();
+      else {
+        DomTreeNode *Cur = *Stack.back().ChildIt++;
+        State NewS = Stack.back().S.enterBlock(*Cur->getBlock());
+        renameBlock(*Cur->getBlock(), NewS, Lambdas);
+        if (Cur->begin() != Cur->end())
+          Stack.push_back({Cur, Cur->begin(), NewS});
+      }
+    }
+  }
+
+  PostDomRenamer(const OccClass &CurOcc, const BlockInsts &PerBlock,
+                 AliasAnalysis &AA, PostDominatorTree &PDT)
+      : CurOcc(CurOcc), PerBlock(PerBlock), AA(AA), PDT(PDT) {}
+};
+
+// CRTP.
+template <typename T> struct RenameState {
+  DenseMap<const BasicBlock *, std::list<RealOcc>> *const BlockOccs;
+  // ^ TODO: Figure out iplist for this?
+  DenseMap<const BasicBlock *, LambdaOcc> *const Lambdas;
+  Occurrence *ReprOcc;
+  // ^ Current representative occurrence, or nullptr for _|_.
+  bool CrossedRealOcc;
+  // ^ Have we crossed a real occurrence since the last non-kill occurrence?
+
+protected:
+  void updateUpSafety() {
+    // We can immediately conclude a lambda to be up-unsafe if it
+    // reverse-reaches any of the following without first crossing a real
+    // occurrence:
+    //   - aliasing kill
+    //   - may-alias store
+    //   - function exit
+    // In a post-dom pre-order walk, this is equivalent to encountering any of
+    // these while the current repr occ is a lambda.
+    if (ReprOcc && ReprOcc->Type == OccTy::Lambda)
+      reinterpret_cast<LambdaOcc *>(ReprOcc)->UpSafe &= CrossedRealOcc;
+  }
+
+  void kill(Instruction *I) {
+    ReprOcc = nullptr;
+    CrossedRealOcc = false;
+  }
+
+public:
+  T enterBlock(BasicBlock &BB) const {
+    // Set the current repr occ to the new block's lambda, if it contains one.
+    return Lambdas->count(&BB)
+               ? T{BlockOccs, Lambdas, &Lambdas->find(&BB)->second, false}
+               : *this;
+  }
+
+  RealOcc &handleRealOcc(Instruction *I) {
+    CrossedRealOcc = true;
+    std::list<RealOcc> &OccList = (*BlockOccs)[I->getParent()];
+    OccList.push_back(RealOcc(I, ReprOcc));
+    // Current occ is a repr occ if we've just emerged from a kill.
+    ReprOcc = ReprOcc ? ReprOcc : &OccList.back();
+    return OccList.back();
+  }
+
+  void handleMayThrowKill(Instruction *I) {
+    kill(I);
+    updateUpSafety();
+  }
+
+  void handleAliasingKill(Instruction *I) {
+    kill(I);
+    updateUpSafety();
+  }
+
+  void handleAliasingStore(Instruction *I) { updateUpSafety(); }
+
+  void handlePostDomExit() { updateUpSafety(); }
+
+  void handlePredecessorLambda(LambdaOcc &L) {
+    L.Operands.push_back({ReprOcc, CrossedRealOcc});
+  }
+};
+
+// Frugal renaming state for pure PDSE.
+struct NonVersioning : public RenameState<NonVersioning> {
+  using Base = RenameState<NonVersioning>;
+  NonVersioning(
+      DenseMap<const BasicBlock *, std::list<RealOcc>> *const BlockOccs,
+      DenseMap<const BasicBlock *, LambdaOcc> *const Lambdas,
+      Occurrence *ReprOcc, bool CrossedRealOcc)
+      : Base{BlockOccs, Lambdas, ReprOcc, CrossedRealOcc} {}
+};
+
+// Track occurrence version numbers for pretty printing.
+struct Versioning : RenameState<Versioning> {
+  DenseMap<const Occurrence *, unsigned> *const OccVersion;
+  DenseMap<const Instruction *, RealOcc *> *const Occs;
+  // ^ nullptr RealOcc = kill occurrencs.
+  unsigned CurrentVer;
+
+  using Base = RenameState<Versioning>;
+
+protected:
+  void kill(Instruction *I) {
+    Base::kill(I);
+    // Track kill occurrences for the pretty printer.
+    Occs->insert({I, nullptr});
+    CurrentVer += 1;
+  }
+
+public:
+  Versioning(DenseMap<const BasicBlock *, std::list<RealOcc>> *const BlockOccs,
+             DenseMap<const BasicBlock *, LambdaOcc> *const Lambdas,
+             Occurrence *ReprOcc, bool CrossedRealOcc,
+             DenseMap<const Occurrence *, unsigned> *const OccVersion,
+             DenseMap<const Instruction *, RealOcc *> *const Occs,
+             unsigned CurrentVer)
+      : Base{BlockOccs, Lambdas, ReprOcc, CrossedRealOcc},
+        OccVersion(OccVersion), Occs(Occs), CurrentVer(CurrentVer) {}
+
+  Versioning enterBlock(BasicBlock &BB) const {
+    DEBUG(dbgs() << "Entering block " << BB.getName()
+                 << (Lambdas->count(&BB) ? " with lambda\n" : "\n"));
+    if (Lambdas->count(&BB)) {
+      LambdaOcc &L = Lambdas->find(&BB)->second;
+      OccVersion->insert({&L, CurrentVer + 1});
+      return Versioning(BlockOccs, Lambdas, &L, false, OccVersion, Occs,
+                        CurrentVer + 1);
+    }
+    return *this;
+  }
+
+  RealOcc &handleRealOcc(Instruction *I) {
+    RealOcc &R = Base::handleRealOcc(I);
+    // Assign a version number to the real occ and tag its instruction.
+    OccVersion->insert({&R, CurrentVer});
+    Occs->insert({I, &R});
+    return R;
+  }
+};
+
+struct FRGAnnot final : public AssemblyAnnotationWriter {
+  const DenseMap<const Occurrence *, unsigned> &OccVersion;
+  const DenseMap<const Instruction *, RealOcc *> &Occs;
+  const DenseMap<const BasicBlock *, LambdaOcc> &Lambdas;
+
+  FRGAnnot(const DenseMap<const Occurrence *, unsigned> &OccVersion,
+           const DenseMap<const Instruction *, RealOcc *> &Occs,
+           const DenseMap<const BasicBlock *, LambdaOcc> &Lambdas)
+      : OccVersion(OccVersion), Occs(Occs), Lambdas(Lambdas) {}
+
+  virtual void emitBasicBlockEndAnnot(const BasicBlock *BB,
+                                      formatted_raw_ostream &OS) override {
+    if (Lambdas.count(BB)) {
+      const LambdaOcc &L = Lambdas.find(BB)->second;
+      assert(L.Operands.size() > 1 &&
+             "IDFCalculator computed an unnecessary lambda.");
+      auto PrintOperand = [&](const LambdaOcc::Operand &Op) {
+        if (Op.ReprOcc) {
+          OS << OccVersion.find(Op.ReprOcc)->second;
+          if (Op.HasRealUse)
+            OS << "*";
+        } else
+          OS << "_|_";
+      };
+      OS << "; Lambda(";
+      PrintOperand(L.Operands[0]);
+      for (const LambdaOcc::Operand &Op :
+           make_range(std::next(L.Operands.begin()), L.Operands.end())) {
+        OS << ", ";
+        PrintOperand(Op);
+      }
+      OS << ") = " << OccVersion.find(&L)->second << "\n";
+    }
+  }
+
+  virtual void emitInstructionAnnot(const Instruction *I,
+                                    formatted_raw_ostream &OS) override {
+    if (Occs.count(I)) {
+      const RealOcc *R = Occs.find(I)->second;
+      if (R)
+        OS << "; " << (R->ReprOcc ? "Real" : "Repr") << "("
+           << OccVersion.find(R)->second << ")\n";
+      else
+        OS << "; Kill\n";
+    }
+  }
+};
+
 // Inherited from old DSE.
 MemoryLocation getLocForWrite(Instruction *Inst) {
   if (StoreInst *SI = dyn_cast<StoreInst>(Inst))
@@ -140,53 +449,64 @@ MemoryLocation getLocForWrite(Instruction *Inst) {
 }
 
 struct OccTracker {
-  // Must-aliasing group of store occurrences..
-  struct OccClass {
-    MemoryLocation Loc;
-    DenseSet<Instruction *> Members;
-    DenseSet<BasicBlock *> Blocks;
-  };
+  SmallVector<OccClass, 32> Classes;
 
-  SmallVector<OccClass, 32> Inner;
-
-  OccTracker &push_back(MemoryLocation Loc, AliasAnalysis &AA) {
+  OccTracker &push_back(MemoryLocation Loc, Instruction &I, AliasAnalysis &AA) {
     // TODO: Run faster than quadratic.
-    auto OC = find_if(Inner, [&](const OccClass &OC) {
+    auto OC = find_if(Classes, [&](const OccClass &OC) {
       return AA.alias(Loc, OC.Loc) == MustAlias;
     });
-    if (OC == Inner.end())
-      Inner.push_back(OccClass{std::move(Loc), {}, {}});
+    if (OC == Classes.end()) {
+      DEBUG(dbgs() << "New real occ class: " << I << "\n");
+      // TODO: Analyze escapability.
+      Classes.push_back({std::move(Loc), {&I}, {I.getParent()}, true});
+    } else {
+      DEBUG(dbgs() << "Collected real occ: " << I << "\n");
+      OC->Members.insert(&I);
+      OC->Blocks.insert(I.getParent());
+    }
     return *this;
   }
 };
 
-// Wraps an instruction that modrefs and/or mayThrow. Throwables are considered
-// killing occurrences for escaping stores.
-struct MemOrThrow {
-  Instruction *I;
-  bool MemInst;
-};
-
-bool runPDSE(Function &F, AliasAnalysis &AA, const PostDominatorTree &PDT,
+bool runPDSE(Function &F, AliasAnalysis &AA, PostDominatorTree &PDT,
              const TargetLibraryInfo &TLI) {
   OccTracker Worklist;
-  DenseMap<BasicBlock *, SmallVector<MemOrThrow, 8>> PerBlock;
+  BlockInsts PerBlock;
 
-  // Build occurrence classes.
+  // Simultaneously collect occurrence classes and build reversed lists of
+  // interesting instructions per block.
   for (BasicBlock &BB : F) {
-    for (Instruction &I : BB) {
+    for (Instruction &I : reverse(BB)) {
       ModRefInfo MRI = AA.getModRefInfo(&I);
       if (MRI & MRI_ModRef || I.mayThrow()) {
-        PerBlock.insert({&BB, {MemOrThrow{&I, bool(MRI & MRI_ModRef)}}});
+        DEBUG(dbgs() << "Interesting: " << I << "\n");
+        PerBlock[&BB].push_back({&I, bool(MRI & MRI_ModRef)});
         if (MRI & MRI_Mod)
           if (MemoryLocation WriteLoc = getLocForWrite(&I))
-            Worklist.push_back(WriteLoc, AA);
+            Worklist.push_back(WriteLoc, I, AA);
       }
     }
   }
 
   if (PrintFRG) {
-    DEBUG(dbgs() << "TODO: Print factored redundancy graph.\n");
+    for (const OccClass &OC : Worklist.Classes) {
+      PostDomRenamer<Versioning> R(OC, PerBlock, AA, PDT);
+      DenseMap<const BasicBlock *, LambdaOcc> Lambdas = R.insertLambdas();
+      DenseMap<const BasicBlock *, std::list<RealOcc>> BlockOccs;
+      DenseMap<const Occurrence *, unsigned> OccVersion;
+      DenseMap<const Instruction *, RealOcc *> Occs;
+
+      // TODO: Use a different root renamer state for non-escapes.
+      R.renamePass(Versioning(&BlockOccs, &Lambdas, nullptr, false, &OccVersion,
+                              &Occs, 0),
+                   Lambdas);
+      dbgs() << "Factored redundancy graph for stores to " << *OC.Loc.Ptr
+             << ":\n";
+      FRGAnnot Annot(OccVersion, Occs, Lambdas);
+      F.print(dbgs(), &Annot);
+      dbgs() << "\n";
+    }
     return false;
   } else {
     DEBUG(dbgs() << "Dummy PDSE pass.\n");
