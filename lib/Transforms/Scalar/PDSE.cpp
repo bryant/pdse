@@ -139,6 +139,8 @@ struct LambdaOcc final : public Occurrence {
   };
 
   SmallVector<Operand, 8> Operands;
+  SmallVector<std::pair<LambdaOcc *, Operand *>, 8> Users;
+  // ^ Needed by the lambda refinement phases `CanBeAnt` and `Later`.
 
   // Consult the Kennedy et al. paper for these.
   bool UpSafe;
@@ -148,6 +150,13 @@ struct LambdaOcc final : public Occurrence {
   LambdaOcc(BasicBlock *Block)
       : Occurrence{-1u, Block, OccTy::Lambda}, Operands{}, UpSafe(true),
         CanBeAnt(true), Later(true) {}
+
+  LambdaOcc &addOperand(Occurrence *ReprOcc, bool HasRealUse) {
+    Operands.push_back({ReprOcc, HasRealUse});
+    if (ReprOcc && ReprOcc->Type == OccTy::Lambda)
+      ReprOcc->asLambda()->Users.push_back({this, &Operands.back()});
+    return *this;
+  }
 };
 
 // A faux occurrence used to detect stores to non-escaping memory that are
@@ -304,7 +313,7 @@ public:
 
   void handlePredecessor(const BasicBlock &Pred) {
     if (LambdaOcc *L = FRG->getLambda(Pred))
-      L->Operands.push_back({ReprOcc, CrossedRealOcc});
+      L->addOperand(ReprOcc, CrossedRealOcc);
   }
 };
 
