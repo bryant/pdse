@@ -1,5 +1,5 @@
-// The pass implemented in this file performs a variation of partial dead store
-// elimination as described in:
+// This passperforms a variation of partial dead store elimination as described
+// in:
 //
 //   Register Promotion Sparse Partial Redundancy Elimination of Loads and Store
 //   https://doi.org/10.1145/277650.277659
@@ -19,7 +19,8 @@
 // exit:
 //   ret void
 //
-// The store in bb0 can be made fully redundant by inserting a copy into the
+// The store in bb0 counts as partially redundant (with respect to the store in
+// the true block) and can be made fully redundant by inserting a copy into the
 // false block.
 //
 // For a gentler introduction to PRE, see:
