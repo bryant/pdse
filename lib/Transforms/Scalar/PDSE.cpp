@@ -1,3 +1,12 @@
+//===- PDSE.cpp - Partial Dead Store Elimination --------------------------===//
+//
+//                     The LLVM Compiler Infrastructure
+//
+// This file is distributed under the University of Illinois Open Source
+// License. See LICENSE.TXT for details.
+//
+//===----------------------------------------------------------------------===//
+//
 // This pass performs a variation of partial dead store elimination as described
 // in:
 //
@@ -32,6 +41,8 @@
 // - May-throw instructions count as killing occurrences in the factored
 //   redundancy graph of escaping stores;
 // - TODO: Figure out partial overwrite tracking.
+//
+//===----------------------------------------------------------------------===//
 
 #include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/Analysis/GlobalsModRef.h"
