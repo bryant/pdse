@@ -130,7 +130,6 @@ struct RealOcc final : public Occurrence {
 };
 
 struct LambdaOcc final : public Occurrence {
-  // Lambda operand representation.
   struct Operand {
     Occurrence *ReprOcc;
     // ^ Representative occurrence dominating this operand. nullptr = _|_.
