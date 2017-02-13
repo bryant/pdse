@@ -85,8 +85,6 @@ struct RealOcc final : public Occurrence {
 
   RealOcc()
       : Occurrence{nullptr, OccTy::Real}, Inst(nullptr), ReprOcc(nullptr) {}
-
-  friend class FRGAnnot;
 };
 
 struct LambdaOcc final : public Occurrence {
@@ -108,8 +106,6 @@ struct LambdaOcc final : public Occurrence {
   LambdaOcc(BasicBlock *Block)
       : Occurrence{Block, OccTy::Lambda}, Operands{}, UpSafe(true),
         CanBeAnt(true), Later(true) {}
-
-  friend class FRGAnnot;
 };
 
 // Faux occurrence used to detect stores to non-escaping memory that are
