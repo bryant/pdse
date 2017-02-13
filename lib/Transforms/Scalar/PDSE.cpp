@@ -157,6 +157,15 @@ struct LambdaOcc final : public Occurrence {
       ReprOcc->asLambda()->Users.push_back({this, &Operands.back()});
     return *this;
   }
+
+  void resetUpSafe() { UpSafe = false; }
+
+  void resetCanBeAnt() {
+    CanBeAnt = false;
+    Later = false;
+  }
+
+  void resetLater() { Later = false; }
 };
 
 // A faux occurrence used to detect stores to non-escaping memory that are
@@ -251,8 +260,8 @@ private:
     //   - function exit
     // In a post-dom pre-order walk, this is equivalent to encountering any of
     // these while the current repr occ is a lambda.
-    if (ReprOcc && ReprOcc->Type == OccTy::Lambda)
-      ReprOcc->asLambda()->UpSafe &= CrossedRealOcc;
+    if (ReprOcc && ReprOcc->Type == OccTy::Lambda && !CrossedRealOcc)
+      ReprOcc->asLambda()->resetUpSafe();
   }
 
   void kill(Instruction *I) {
