@@ -102,8 +102,8 @@ struct RealOcc final : public Occurrence {
   Instruction *Inst;
   Occurrence *ReprOcc;
   // ^ Points to this real occurrence's representative occurrence, which is the
-  // closest post-dominating non-redundant RealOcc without an intervening kill.
-  // For representative occurrences themselves, this is nullptr.
+  // closest post-dominating non-redundant occurrence without an intervening
+  // kill. For representative occurrences themselves, this is nullptr.
   enum OneSidedKill { NoKill, UpKill, DownKill } AlsoKills;
   // ^ Records whether Inst also acts as a kill occurrence. UpKill =
   // load-then-store (e.g., memmove with aliasing operands); DownKill =
@@ -135,8 +135,8 @@ struct LambdaOcc final : public Occurrence {
     Occurrence *ReprOcc;
     // ^ Representative occurrence dominating this operand. nullptr = _|_.
     bool HasRealUse;
-    // ^ Is there a real occurrence on some path from ReprOcc to this operand?
-    // Always false for _|_ operands.
+    // ^ Is there a real occurrence on some path from ReprOcc to this operand's
+    // lambda? Always false for _|_ operands.
   };
 
   SmallVector<Operand, 8> Operands;
