@@ -430,7 +430,8 @@ class PostDomRenamer {
   void computeLambdaBlocks(SmallVectorImpl<BasicBlock *> &LambdaBlocks,
                            RedGraph &FRG) {
     // Enumerate def blocks, which are all blocks containing kill and/or real
-    // occurrences.
+    // occurrences. TODO: This could be done for all RedGraphs in a single pass
+    // through the function.
     SmallPtrSet<BasicBlock *, 8> DefBlocks;
     for (const auto &BB : FRG.BlockOccs)
       DefBlocks.insert(const_cast<BasicBlock *>(BB.first));
