@@ -91,14 +91,14 @@ struct RealOcc final : public Occurrence {
 
 struct LambdaOcc final : public Occurrence {
   // Lambda operand representation.
-  struct Incoming {
+  struct Operand {
     Occurrence *ReprOcc;
     // ^ Representative occurrence dominating this operand. nullptr = _|_.
     bool HasRealUse;
     // ^ Is there a real occurrence on some path from ReprOcc to this operand?
     // Always false for _|_ operands.
   };
-  SmallVector<Incoming, 8> Operands;
+  SmallVector<Operand, 8> Operands;
 
   // Consult the Kennedy et al. paper for these.
   bool UpSafe;
