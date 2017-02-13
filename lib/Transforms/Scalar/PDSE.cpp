@@ -208,6 +208,91 @@ struct RedGraph {
     })();
   }
 
+private:
+  using LambdaStack = SmallVector<LambdaOcc *, 16>;
+
+  // All of the lambda occ refinement phases follow this depth-first structure
+  // to propagate some lambda flag from an initial set to the rest of the graph.
+  // Consult figures 8 and 10 of Kennedy et al.
+  template <typename Push, typename InitialCond, typename Already>
+  void depthFirst(Push push, InitialCond initial, Already alreadyTraversed) {
+    LambdaStack Stack;
+
+    for (auto &L : Lambdas)
+      if (initial(L.second))
+        push(L.second, Stack);
+
+    while (!Stack.empty()) {
+      LambdaOcc &L = *Stack.pop_back_val();
+      if (!alreadyTraversed(L))
+        push(L, Stack);
+    }
+  }
+
+  void computeCanBeAnt() {
+    auto push = [](LambdaOcc &L, LambdaStack &Stack) {
+      L.resetCanBeAnt();
+      for (auto &LO : L.Users)
+        if (!LO.second->HasRealUse && !LO.first->UpSafe && LO.first->CanBeAnt)
+          Stack.push_back(LO.first);
+    };
+    auto initialCond = [](LambdaOcc &L) {
+      return !L.UpSafe && L.CanBeAnt &&
+             any_of(L.Operands,
+                    [](const LambdaOcc::Operand &Op) { return !Op.ReprOcc; });
+    };
+    auto alreadyTraversed = [](LambdaOcc &L) { return !L.CanBeAnt; };
+
+    depthFirst(push, initialCond, alreadyTraversed);
+  }
+
+  void computeLater() {
+    auto push = [](LambdaOcc &L, LambdaStack &Stack) {
+      L.resetLater();
+      for (auto &LO : L.Users)
+        if (LO.first->Later)
+          Stack.push_back(LO.first);
+    };
+    auto initialCond = [](LambdaOcc &L) {
+      return L.Later && any_of(L.Operands, [](const LambdaOcc::Operand &Op) {
+               return Op.ReprOcc && Op.HasRealUse;
+             });
+    };
+    auto alreadyTraversed = [](LambdaOcc &L) { return !L.Later; };
+
+    depthFirst(push, initialCond, alreadyTraversed);
+  }
+
+public:
+  // If:
+  //   - lambda P is repr occ to an operand of lambda Q,
+  //   - Q is up-unsafe (i.e., there is a reverse path from Q to function entry
+  //     that doesn't cross any real occs of Q's class), and
+  //   - there are no real occs from P to Q,
+  // then we can conclude that P is up-unsafe too. We use this to propagate
+  // up-unsafety to the rest of the FRG.
+  RedGraph &propagateUpUnsafe() {
+    auto push = [](LambdaOcc &L, LambdaStack &Stack) {
+      for (LambdaOcc::Operand &Op : L.Operands)
+        if (Op.ReprOcc && !Op.HasRealUse && Op.ReprOcc->Type == OccTy::Lambda &&
+            Op.ReprOcc->asLambda()->UpSafe)
+          Stack.push_back(Op.ReprOcc->asLambda());
+    };
+    auto upUnSafe = [](LambdaOcc &L) { return !L.UpSafe; };
+    // If the top entry of the lambda stack is up-unsafe, then it and its
+    // operands already been traversed.
+    auto &alreadyTraversed = upUnSafe;
+
+    depthFirst(push, upUnSafe, alreadyTraversed);
+    return *this;
+  }
+
+  RedGraph &willBeAnt() {
+    computeCanBeAnt();
+    computeLater();
+    return *this;
+  }
+
   const LambdaOcc *getLambda(const BasicBlock &BB) const {
     return Lambdas.count(&BB) ? &Lambdas.find(&BB)->second : nullptr;
   }
