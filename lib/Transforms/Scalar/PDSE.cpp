@@ -63,7 +63,7 @@ static cl::opt<bool>
              cl::desc("Print the factored redundancy graph of stores."));
 
 namespace {
-// Factored redundancy graph representation
+// Representations of factored redundancy graph elements.
 enum struct OccTy {
   Real,
   Lambda,
