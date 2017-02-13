@@ -1,5 +1,5 @@
-// The pass implemented in this file performs partial dead store elimination as
-// described in:
+// The pass implemented in this file performs a variation of partial dead store
+// elimination as described in:
 //
 //   Register Promotion Sparse Partial Redundancy Elimination of Loads and Store
 //   https://doi.org/10.1145/277650.277659
@@ -26,6 +26,13 @@
 //
 //   Partial Redundancy Elimination in SSA Form
 //   https://doi.org/10.1145/319301.319348
+//
+// Differences between the papers and this implementation:
+// - May-throw instructions count as killing occurrences in the factored
+//   redundancy graph of escaping stores;
+// - Occurrence version numbers are only recorded for pretty-printing. For
+//   normal PDSE, it's enough for each real occurrence to point to its
+//   representative.
 
 #include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/Analysis/GlobalsModRef.h"
