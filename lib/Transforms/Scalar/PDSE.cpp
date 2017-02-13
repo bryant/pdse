@@ -79,6 +79,7 @@ struct RealOcc final : public Occurrence {
   Occurrence *ReprOcc;
   // ^ Points to this real occurrence's representative occurrence, which is the
   // closest post-dominating non-redundant RealOcc without an intervening kill.
+  // For representative occurrences themselves, this is nullptr.
 
   RealOcc(Instruction *I, Occurrence *ReprOcc)
       : Occurrence{I->getParent(), OccTy::Real}, Inst(I), ReprOcc(ReprOcc) {}
