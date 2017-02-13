@@ -195,11 +195,11 @@ struct RedGraph {
   }
 
   void setEscapesReturned(const DenseSet<const Value *> &NonEscapes,
-                          const DenseSet<const Value *> &Returns) {
-    assert(FRG.Loc.Ptr &&
+                          const DenseSet<const Value *> &Returns,
+                          const DataLayout &DL) {
+    assert(Loc.Ptr &&
            "Real occurrences must store to an analyzable memory address.");
-    const DataLayout &DL = FRG.Loc.Ptr.getModule()->getDataLayout();
-    const Value *Und = GetUnderlyingObject(FRG.Loc.Ptr, DL);
+    const Value *Und = GetUnderlyingObject(Loc.Ptr, DL);
     Returned = Returns.count(Und);
     Escapes = !NonEscapes.count(Und) && !([&]() {
       SmallVector<Value *, 4> Unds;
