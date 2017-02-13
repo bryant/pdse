@@ -564,7 +564,10 @@ struct FRGAnnot final : public AssemblyAnnotationWriter {
         OS << ", ";
         PrintOperand(Op);
       }
-      OS << ") = " << L->ID << "\n";
+      bool WillBeAnt = L->CanBeAnt && !L->Later;
+      OS << ") = " << L->ID << "\t" << (L->UpSafe ? "U " : "~U ")
+         << (L->CanBeAnt ? "C " : "~C ") << (L->Later ? "L " : "~L ")
+         << (WillBeAnt ? "W" : "~W") << "\n";
     }
   }
 
