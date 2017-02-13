@@ -34,6 +34,7 @@
 // - Occurrence version numbers are only recorded for pretty-printing. For
 //   normal PDSE, it's enough for each real occurrence to point to its
 //   representative.
+// - TODO: Figure out partial overwrite tracking.
 
 #include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/Analysis/GlobalsModRef.h"
