@@ -679,25 +679,23 @@ bool runPDSE(Function &F, AliasAnalysis &AA, PostDominatorTree &PDT,
     }
   }
 
-  if (PrintFRG) {
-    for (RedGraph &FRG : Worklist.Inner) {
-      assert(FRG.InstMap.size() > 0 &&
-             "Occurrence groups should be non-empty.");
+  for (RedGraph &FRG : Worklist.Inner) {
+    // Now that NonEscapes and Returned are complete, compute escapability and
+    // return-ness.
+    FRG.setEscapesReturned(NonEscapes, Returns, F.getParent()->getDataLayout());
 
-      // Now that NonEscapes and Returned are complete, compute escapability and
-      // return-ness.
-      FRG.setEscapesReturned(NonEscapes, Returned);
+    PostDomRenamer(PerBlock, AA, PDT).insertLambdas(FRG).renamePass(FRG);
+    FRG.propagateUpUnsafe().willBeAnt();
 
-      PostDomRenamer(PerBlock, AA, PDT).insertLambdas(FRG).renamePass(FRG);
+    if (PrintFRG) {
       FRGAnnot Annot(FRG);
       dbgs() << "Factored redundancy graph for stores to " << *FRG.Loc.Ptr
              << ":\n";
       F.print(dbgs(), &Annot);
       dbgs() << "\n";
+    } else {
+      DEBUG(dbgs() << "Eliminate stores for " << *FRG.Loc.Ptr << "\n");
     }
-    return false;
-  } else {
-    DEBUG(dbgs() << "Dummy PDSE pass.\n");
   }
   return false;
 }
