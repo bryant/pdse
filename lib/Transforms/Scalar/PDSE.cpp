@@ -54,10 +54,6 @@
 
 #define DEBUG_TYPE "pdse"
 
-// TODO: Require BreakCriticalEdges to ensure that lambdas (resp. phis) dominate
-// (resp. post-dominate) their successor (resp. predecessor) blocks (SSAPRE
-// assumes this condition).
-
 using namespace llvm;
 
 static cl::opt<bool>
