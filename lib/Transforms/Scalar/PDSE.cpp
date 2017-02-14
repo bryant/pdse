@@ -661,13 +661,6 @@ bool runPDSE(Function &F, AliasAnalysis &AA, PostDominatorTree &PDT,
         continue;
       }
 
-      if (auto *RI = dyn_cast<ReturnInst>(&I)) {
-        if (Value *RetVal = RI->getReturnValue())
-          Returns.insert(
-              GetUnderlyingObject(RetVal, F.getParent()->getDataLayout()));
-        continue;
-      }
-
       ModRefInfo MRI = AA.getModRefInfo(&I);
       if (MRI & MRI_ModRef || I.mayThrow()) {
         DEBUG(dbgs() << "Interesting: " << I << "\n");
@@ -678,6 +671,11 @@ bool runPDSE(Function &F, AliasAnalysis &AA, PostDominatorTree &PDT,
                                std::move(LocOcc->second), AA);
       }
     }
+
+    if (auto *RI = dyn_cast<ReturnInst>(BB.getTerminator()))
+      if (Value *RetVal = RI->getReturnValue())
+        Returns.insert(
+            GetUnderlyingObject(RetVal, F.getParent()->getDataLayout()));
   }
 
   for (RedGraph &FRG : Worklist.Inner) {
