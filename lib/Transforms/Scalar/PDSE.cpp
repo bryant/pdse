@@ -131,11 +131,26 @@ struct RealOcc final : public Occurrence {
 
 struct LambdaOcc final : public Occurrence {
   struct Operand {
-    Occurrence *ReprOcc;
-    // ^ Representative occurrence dominating this operand. nullptr = _|_.
+    PointerUnion<Occurrence *, BasicBlock *> ReprOcc;
+    // ^ Points to the successor block of _|_ operands, and the dominating repr
+    // occ otherwise.
     bool HasRealUse;
     // ^ Is there a real occurrence on some path from ReprOcc to this operand's
     // lambda? Always false for _|_ operands.
+
+    Operand(BasicBlock &Succ) : ReprOcc(&Succ), HasRealUse(false) {}
+
+    Operand(Occurrence &ReprOcc, bool HasRealUse)
+        : ReprOcc(&ReprOcc), HasRealUse(HasRealUse) {}
+
+    bool isBottom() const { return ReprOcc.is<BasicBlock *>(); }
+
+    Occurrence *asOcc() { return ReprOcc.dyn_cast<Occurrence *>(); }
+
+    BasicBlock &getBlock() {
+      return isBottom() ? &ReprOcc.get<BasicBlock *>()
+                        : *ReprOcc.dyn_cast<Occurrence *>()->Block;
+    }
   };
 
   SmallVector<Operand, 8> Operands;
@@ -151,10 +166,12 @@ struct LambdaOcc final : public Occurrence {
       : Occurrence{-1u, Block, OccTy::Lambda}, Operands{}, UpSafe(true),
         CanBeAnt(true), Earlier(true) {}
 
-  LambdaOcc &addOperand(Occurrence *ReprOcc, bool HasRealUse) {
-    Operands.push_back({ReprOcc, HasRealUse});
-    if (ReprOcc && ReprOcc->Type == OccTy::Lambda)
-      ReprOcc->asLambda()->Users.push_back({this, &Operands.back()});
+  LambdaOcc &addOperand(Operand &&Op) {
+    assert(Op.ReprOcc && "ReprOcc can't be nullptr.");
+    Operands.push_back(std::move(Op));
+    if (auto *Occ = Operands.back().asOcc())
+      if (Occ->Type == OccTy::Lambda)
+        Occ->asLambda()->Users.push_back({this, &Operands.back()});
     return *this;
   }
 
@@ -240,7 +257,7 @@ private:
     auto initialCond = [](LambdaOcc &L) {
       return !L.UpSafe && L.CanBeAnt &&
              any_of(L.Operands,
-                    [](const LambdaOcc::Operand &Op) { return !Op.ReprOcc; });
+                    [](const LambdaOcc::Operand &Op) { return Op.isBottom(); });
     };
     auto alreadyTraversed = [](LambdaOcc &L) { return !L.CanBeAnt; };
 
@@ -256,7 +273,7 @@ private:
     };
     auto initialCond = [](LambdaOcc &L) {
       return L.Earlier && any_of(L.Operands, [](const LambdaOcc::Operand &Op) {
-               return Op.ReprOcc && Op.HasRealUse;
+               return !Op.isBottom() && Op.HasRealUse;
              });
     };
     auto alreadyTraversed = [](LambdaOcc &L) { return !L.Earlier; };
@@ -275,9 +292,10 @@ public:
   RedGraph &propagateUpUnsafe() {
     auto push = [](LambdaOcc &L, LambdaStack &Stack) {
       for (LambdaOcc::Operand &Op : L.Operands)
-        if (Op.ReprOcc && !Op.HasRealUse && Op.ReprOcc->Type == OccTy::Lambda &&
-            Op.ReprOcc->asLambda()->UpSafe)
-          Stack.push_back(Op.ReprOcc->asLambda());
+        if (Occurrence *Occ = Op.asOcc())
+          if (!Op.HasRealUse && Occ->Type == OccTy::Lambda &&
+              Occ->asLambda()->UpSafe)
+            Stack.push_back(Occ->asLambda());
     };
     auto upUnSafe = [](LambdaOcc &L) { return !L.UpSafe; };
     // If the top entry of the lambda stack is up-unsafe, then it and its
@@ -406,9 +424,10 @@ public:
 
   void handlePostDomExit() { updateUpSafety(); }
 
-  void handlePredecessor(const BasicBlock &Pred) {
+  void handlePredecessor(const BasicBlock &Pred, BasicBlock &CurBlock) {
     if (LambdaOcc *L = FRG->getLambda(Pred))
-      L->addOperand(ReprOcc, CrossedRealOcc);
+      L->addOperand(ReprOcc ? LambdaOcc::Operand(*ReprOcc, CrossedRealOcc)
+                            : LambdaOcc::Operand(CurBlock));
   }
 };
 
@@ -477,7 +496,7 @@ class PostDomRenamer {
       S.handlePostDomExit();
 
     for (BasicBlock *Pred : predecessors(&BB))
-      S.handlePredecessor(*Pred);
+      S.handlePredecessor(*Pred, BB);
     return S;
   }
 
@@ -550,12 +569,13 @@ struct FRGAnnot final : public AssemblyAnnotationWriter {
       assert(L->Operands.size() > 1 &&
              "IDFCalculator computed an unnecessary lambda.");
       auto PrintOperand = [&](const LambdaOcc::Operand &Op) {
-        if (!Op.ReprOcc)
+        OS << "{" << Op.getBlock().getName() << ", ";
+        if (Op.isBottom())
           OS << "_|_";
-        else if (Op.ReprOcc == &DeadOnExit)
+        else if (Op.ReprOcc.asOcc() == &DeadOnExit)
           OS << "DeadOnExit";
         else
-          OS << Op.ReprOcc->ID;
+          OS << Op.ReprOcc.asOcc()->ID;
         if (Op.HasRealUse)
           OS << "*";
       };
