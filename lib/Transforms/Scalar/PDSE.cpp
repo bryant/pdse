@@ -140,16 +140,16 @@ struct LambdaOcc final : public Occurrence {
 
   SmallVector<Operand, 8> Operands;
   SmallVector<std::pair<LambdaOcc *, Operand *>, 8> Users;
-  // ^ Needed by the lambda refinement phases `CanBeAnt` and `Later`.
+  // ^ Needed by the lambda refinement phases `CanBeAnt` and `Earlier`.
 
   // Consult the Kennedy et al. paper for these.
   bool UpSafe;
   bool CanBeAnt;
-  bool Later;
+  bool Earlier;
 
   LambdaOcc(BasicBlock *Block)
       : Occurrence{-1u, Block, OccTy::Lambda}, Operands{}, UpSafe(true),
-        CanBeAnt(true), Later(true) {}
+        CanBeAnt(true), Earlier(true) {}
 
   LambdaOcc &addOperand(Occurrence *ReprOcc, bool HasRealUse) {
     Operands.push_back({ReprOcc, HasRealUse});
@@ -162,10 +162,10 @@ struct LambdaOcc final : public Occurrence {
 
   void resetCanBeAnt() {
     CanBeAnt = false;
-    Later = false;
+    Earlier = false;
   }
 
-  void resetLater() { Later = false; }
+  void resetEarlier() { Earlier = false; }
 };
 
 // A faux occurrence used to detect stores to non-escaping memory that are
@@ -246,19 +246,19 @@ private:
     depthFirst(push, initialCond, alreadyTraversed);
   }
 
-  void computeLater() {
+  void computeEarlier() {
     auto push = [](LambdaOcc &L, LambdaStack &Stack) {
-      L.resetLater();
+      L.resetEarlier();
       for (auto &LO : L.Users)
-        if (LO.first->Later)
+        if (LO.first->Earlier)
           Stack.push_back(LO.first);
     };
     auto initialCond = [](LambdaOcc &L) {
-      return L.Later && any_of(L.Operands, [](const LambdaOcc::Operand &Op) {
+      return L.Earlier && any_of(L.Operands, [](const LambdaOcc::Operand &Op) {
                return Op.ReprOcc && Op.HasRealUse;
              });
     };
-    auto alreadyTraversed = [](LambdaOcc &L) { return !L.Later; };
+    auto alreadyTraversed = [](LambdaOcc &L) { return !L.Earlier; };
 
     depthFirst(push, initialCond, alreadyTraversed);
   }
@@ -289,7 +289,7 @@ public:
 
   RedGraph &willBeAnt() {
     computeCanBeAnt();
-    computeLater();
+    computeEarlier();
     return *this;
   }
 
@@ -565,9 +565,9 @@ struct FRGAnnot final : public AssemblyAnnotationWriter {
         OS << ", ";
         PrintOperand(Op);
       }
-      bool WillBeAnt = L->CanBeAnt && !L->Later;
+      bool WillBeAnt = L->CanBeAnt && !L->Earlier;
       OS << ") = " << L->ID << "\t" << (L->UpSafe ? "U " : "~U ")
-         << (L->CanBeAnt ? "C " : "~C ") << (L->Later ? "L " : "~L ")
+         << (L->CanBeAnt ? "C " : "~C ") << (L->Earlier ? "E " : "~E ")
          << (WillBeAnt ? "W" : "~W") << "\n";
     }
   }
