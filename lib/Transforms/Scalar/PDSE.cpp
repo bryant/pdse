@@ -156,6 +156,7 @@ struct LambdaOcc final : public Occurrence {
   SmallVector<Operand, 8> Operands;
   SmallVector<std::pair<LambdaOcc *, Operand *>, 8> Users;
   // ^ Needed by the lambda refinement phases `CanBeAnt` and `Earlier`.
+  bool HasBottom;
 
   // Consult the Kennedy et al. paper for these.
   bool UpSafe;
@@ -163,12 +164,13 @@ struct LambdaOcc final : public Occurrence {
   bool Earlier;
 
   LambdaOcc(BasicBlock *Block)
-      : Occurrence{-1u, Block, OccTy::Lambda}, Operands{}, UpSafe(true),
-        CanBeAnt(true), Earlier(true) {}
+      : Occurrence{-1u, Block, OccTy::Lambda}, Operands{}, HasBottom(false),
+        UpSafe(true), CanBeAnt(true), Earlier(true) {}
 
   LambdaOcc &addOperand(Operand &&Op) {
     assert(Op.ReprOcc && "ReprOcc can't be nullptr.");
     Operands.push_back(std::move(Op));
+    HasBottom |= Operands.back().isBottom();
     if (auto *Occ = Operands.back().asOcc())
       if (Occ->Type == OccTy::Lambda)
         Occ->asLambda()->Users.push_back({this, &Operands.back()});
