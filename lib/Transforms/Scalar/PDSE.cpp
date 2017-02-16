@@ -623,7 +623,7 @@ struct OccTracker {
   OccTracker &push_back(MemoryLocation &&Loc, RealOcc &&R, AliasAnalysis &AA) {
     // TODO: Match faster than quadratic.
     auto OC = find_if(Inner, [&](const RedGraph &FRG) {
-      return AA.alias(Loc, FRG.Loc) == MustAlias;
+      return AA.alias(Loc, FRG.Loc) == MustAlias && Loc.Size == FRG.Loc.Size;
     });
     DEBUG(dbgs() << "Collected real occ: " << *R.Inst << "\n");
     if (OC == Inner.end())
