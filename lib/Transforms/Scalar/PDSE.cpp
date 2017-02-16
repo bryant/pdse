@@ -668,6 +668,7 @@ bool runPDSE(Function &F, AliasAnalysis &AA, PostDominatorTree &PDT,
              const TargetLibraryInfo &TLI) {
   OccTracker Worklist;
   BlockInsts PerBlock;
+  DenseMap<const Instruction *, MemOrThrow *> InstToMOT;
   DenseSet<const Value *> NonEscapes;
   DenseSet<const Value *> Returns;
 
@@ -690,6 +691,7 @@ bool runPDSE(Function &F, AliasAnalysis &AA, PostDominatorTree &PDT,
       if (MRI & MRI_ModRef || I.mayThrow()) {
         DEBUG(dbgs() << "Interesting: " << I << "\n");
         PerBlock[&BB].push_back({&I, bool(MRI & MRI_ModRef)});
+        InstToMOT[&I] = PerBlock[&BB].back();
         if (MRI & MRI_Mod)
           if (auto LocOcc = makeRealOcc(I, AA))
             Worklist.push_back(std::move(LocOcc->first),
