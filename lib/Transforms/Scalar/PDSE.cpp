@@ -214,8 +214,9 @@ private:
   // All of the lambda occ refinement phases follow this depth-first structure
   // to propagate some lambda flag from an initial set to the rest of the graph.
   // Consult figures 8 and 10 of Kennedy et al.
-  template <typename Push, typename InitialCond, typename Already>
-  void depthFirst(Push push, InitialCond initial, Already alreadyTraversed) {
+  void depthFirst(void (*push)(LambdaOcc &, LambdaStack &),
+                  bool (*initial)(LambdaOcc &),
+                  bool (*alreadyTraversed)(LambdaOcc &L)) {
     LambdaStack Stack;
 
     for (auto &L : Lambdas)
@@ -243,7 +244,7 @@ private:
     };
     auto alreadyTraversed = [](LambdaOcc &L) { return !L.CanBeAnt; };
 
-    depthFirst(push, initialCond, alreadyTraversed);
+    depthFirst(&push, &initialCond, &alreadyTraversed);
   }
 
   void computeEarlier() {
@@ -260,7 +261,7 @@ private:
     };
     auto alreadyTraversed = [](LambdaOcc &L) { return !L.Earlier; };
 
-    depthFirst(push, initialCond, alreadyTraversed);
+    depthFirst(&push, &initialCond, &alreadyTraversed);
   }
 
 public:
@@ -283,7 +284,7 @@ public:
     // operands already been traversed.
     auto &alreadyTraversed = upUnSafe;
 
-    depthFirst(push, upUnSafe, alreadyTraversed);
+    depthFirst(&push, &initialCond, &alreadyTraversed);
     return *this;
   }
 
