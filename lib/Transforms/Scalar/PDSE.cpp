@@ -183,6 +183,8 @@ struct LambdaOcc final : public Occurrence {
   }
 
   void resetEarlier() { Earlier = false; }
+
+  bool willBeAnt() const { return CanBeAnt && !Earlier; }
 };
 
 // A faux occurrence used to detect stores to non-escaping memory that are
