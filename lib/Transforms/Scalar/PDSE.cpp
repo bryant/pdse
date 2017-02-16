@@ -187,6 +187,20 @@ struct LambdaOcc final : public Occurrence {
   void resetEarlier() { Earlier = false; }
 
   bool willBeAnt() const { return CanBeAnt && !Earlier; }
+
+  void fillBottom(RealOcc &R) {
+    if (HasBottom) {
+      for (const Operand &Op : Operands) {
+        if (Op.isBottom()) {
+          R.Inst->clone()->insertBefore(Op.getBlock().begin());
+          PerBlock[&Op.getBlock()].push_back(*Op.getBlock().begin());
+        }
+      }
+      HasBottom = false;
+      return true;
+    }
+    return false;
+  }
 };
 
 // A faux occurrence used to detect stores to non-escaping memory that are
@@ -720,7 +734,20 @@ bool runPDSE(Function &F, AliasAnalysis &AA, PostDominatorTree &PDT,
       F.print(dbgs(), &Annot);
       dbgs() << "\n";
     } else {
-      DEBUG(dbgs() << "Eliminate stores for " << *FRG.Loc.Ptr << "\n");
+      for (auto &BlockOccs : FRG.BlockOccs)
+        for (RealOcc &R : BlockOccs.second)
+          if (Occurrence *Repr = R.ReprOcc)
+            switch (Repr->Type) {
+            case OccTy::Lambda:
+              if (!Repr->asLambda()->willBeAnt())
+                break;
+              Repr->asLambda()->fillBottom(R);
+            case OccTy::Real:
+              DEBUG(dbgs() << "DSEing " << *Repr->Inst << "\n");
+              R.Inst->eraseFromParent();
+              if (PerBlock.count(R.Block))
+                PerBlock.erase(InstToMOT.find(R.Inst));
+            }
     }
   }
   return false;
