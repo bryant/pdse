@@ -444,7 +444,7 @@ struct MemOrThrow {
 
 // Analogous to MemorySSA's AccessList, but for both memory and may-throw
 // instructions, in reverse.
-using BlockInsts = DenseMap<const BasicBlock *, SmallVector<MemOrThrow, 8>>;
+using BlockInsts = DenseMap<const BasicBlock *, list<MemOrThrow, 8>>;
 
 class PostDomRenamer {
   const BlockInsts &PerBlock;
