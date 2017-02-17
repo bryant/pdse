@@ -703,34 +703,34 @@ bool runPDSE(Function &F, AliasAnalysis &AA, PostDominatorTree &PDT,
              << ":\n";
       F.print(dbgs(), &Annot);
       dbgs() << "\n";
-    } else {
-      for (auto &BlockOccs : FRG.BlockOccs)
-        for (RealOcc &R : BlockOccs.second)
-          if (Occurrence *Repr = R.ReprOcc)
-            switch (Repr->Type) {
-            case OccTy::Lambda:
-              if (!Repr->asLambda()->willBeAnt())
-                break;
-              // Fill the bottoms of this lambda.
-              if (Repr->asLambda()->HasBottom) {
-                for (LambdaOcc::Operand &Op : Repr->asLambda()->Operands) {
-                  // TODO: break crit edges
-                  if (Op.isBottom()) {
-                    R.Inst->clone()->insertBefore(&*Op.getBlock().begin());
-                    PerBlock[&Op.getBlock()].emplace_back(
-                        MemOrThrow{&*Op.getBlock().begin(), true});
-                  }
-                }
-                Repr->asLambda()->HasBottom = false;
-              }
-            case OccTy::Real:
-              DEBUG(dbgs() << "DSEing " << *R.Inst << "\n");
-              R.Inst->eraseFromParent();
-              if (PerBlock.count(R.Block))
-                PerBlock.find(R.Block)->second.erase(
-                    InstToMOT.find(R.Inst)->second);
-            }
     }
+
+    for (auto &BlockOccs : FRG.BlockOccs)
+      for (RealOcc &R : BlockOccs.second)
+        if (Occurrence *Repr = R.ReprOcc)
+          switch (Repr->Type) {
+          case OccTy::Lambda:
+            if (!Repr->asLambda()->willBeAnt())
+              break;
+            // Fill the bottoms of this lambda.
+            if (Repr->asLambda()->HasBottom) {
+              for (LambdaOcc::Operand &Op : Repr->asLambda()->Operands) {
+                // TODO: break crit edges
+                if (!Op.ReprOcc) {
+                  R.Inst->clone()->insertBefore(&*Op.Block->begin());
+                  PerBlock[Op.Block].emplace_back(
+                      MemOrThrow{&*Op.Block->begin(), true});
+                }
+              }
+              Repr->asLambda()->HasBottom = false;
+            }
+          case OccTy::Real:
+            DEBUG(dbgs() << "DSEing " << *R.Inst << "\n");
+            if (PerBlock.count(R.Block))
+              PerBlock.find(R.Block)->second.erase(
+                  InstToMOT.find(R.Inst)->second);
+            R.Inst->eraseFromParent();
+          }
   }
   return false;
 }
