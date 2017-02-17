@@ -272,7 +272,7 @@ private:
     };
     auto alreadyTraversed = [](LambdaOcc &L) { return !L.CanBeAnt; };
 
-    depthFirst(&push, &initialCond, &alreadyTraversed);
+    depthFirst(push, initialCond, alreadyTraversed);
   }
 
   void computeEarlier() {
@@ -289,7 +289,7 @@ private:
     };
     auto alreadyTraversed = [](LambdaOcc &L) { return !L.Earlier; };
 
-    depthFirst(&push, &initialCond, &alreadyTraversed);
+    depthFirst(push, initialCond, alreadyTraversed);
   }
 
 public:
@@ -308,12 +308,12 @@ public:
               Occ->asLambda()->UpSafe)
             Stack.push_back(Occ->asLambda());
     };
-    auto upUnSafe = [](LambdaOcc &L) { return !L.UpSafe; };
+    auto initialCond = [](LambdaOcc &L) { return !L.UpSafe; };
     // If the top entry of the lambda stack is up-unsafe, then it and its
     // operands already been traversed.
-    auto &alreadyTraversed = upUnSafe;
+    auto &alreadyTraversed = initialCond;
 
-    depthFirst(&push, &initialCond, &alreadyTraversed);
+    depthFirst(push, initialCond, alreadyTraversed);
     return *this;
   }
 
