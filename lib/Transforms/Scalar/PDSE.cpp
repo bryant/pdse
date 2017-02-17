@@ -131,33 +131,12 @@ struct RealOcc final : public Occurrence {
 
 struct LambdaOcc final : public Occurrence {
   struct Operand {
-    PointerUnion<Occurrence *, BasicBlock *> ReprOcc;
-    // ^ Points to the successor block of _|_ operands, and the dominating repr
-    // occ otherwise.
+    BasicBlock *Block;
+    Occurrence *ReprOcc;
+    // ^ Representative occurrence dominating this operand. nullptr = _|_.
     bool HasRealUse;
     // ^ Is there a real occurrence on some path from ReprOcc to this operand's
     // lambda? Always false for _|_ operands.
-
-    Operand(BasicBlock &Succ) : ReprOcc(&Succ), HasRealUse(false) {}
-
-    Operand(Occurrence &ReprOcc, bool HasRealUse)
-        : ReprOcc(&ReprOcc), HasRealUse(HasRealUse) {}
-
-    bool isBottom() const { return ReprOcc.is<BasicBlock *>(); }
-
-    const Occurrence *asOcc() const { return ReprOcc.dyn_cast<Occurrence *>(); }
-
-    Occurrence *asOcc() { return ReprOcc.dyn_cast<Occurrence *>(); }
-
-    BasicBlock &getBlock() {
-      return isBottom() ? *ReprOcc.get<BasicBlock *>()
-                        : *ReprOcc.dyn_cast<Occurrence *>()->Block;
-    }
-
-    const BasicBlock &getBlock() const {
-      return isBottom() ? *ReprOcc.get<BasicBlock *>()
-                        : *ReprOcc.dyn_cast<Occurrence *>()->Block;
-    }
   };
 
   SmallVector<Operand, 8> Operands;
@@ -174,13 +153,12 @@ struct LambdaOcc final : public Occurrence {
       : Occurrence{-1u, Block, OccTy::Lambda}, Operands{}, HasBottom(false),
         UpSafe(true), CanBeAnt(true), Earlier(true) {}
 
-  LambdaOcc &addOperand(Operand &&Op) {
-    assert(Op.ReprOcc && "ReprOcc can't be nullptr.");
-    Operands.push_back(std::move(Op));
-    HasBottom |= Operands.back().isBottom();
-    if (Occurrence *Occ = Operands.back().asOcc())
-      if (Occ->Type == OccTy::Lambda)
-        Occ->asLambda()->Users.push_back({this, &Operands.back()});
+  LambdaOcc &addOperand(BasicBlock &Succ, Occurrence *ReprOcc,
+                        bool HasRealUse) {
+    Operands.push_back({&Succ, ReprOcc, HasRealUse});
+    HasBottom |= !ReprOcc;
+    if (ReprOcc && ReprOcc->Type == OccTy::Lambda)
+      ReprOcc->asLambda()->Users.push_back({this, &Operands.back()});
     return *this;
   }
 
@@ -268,7 +246,7 @@ private:
     auto initialCond = [](LambdaOcc &L) {
       return !L.UpSafe && L.CanBeAnt &&
              any_of(L.Operands,
-                    [](const LambdaOcc::Operand &Op) { return Op.isBottom(); });
+                    [](const LambdaOcc::Operand &Op) { return !Op.ReprOcc; });
     };
     auto alreadyTraversed = [](LambdaOcc &L) { return !L.CanBeAnt; };
 
@@ -284,7 +262,7 @@ private:
     };
     auto initialCond = [](LambdaOcc &L) {
       return L.Earlier && any_of(L.Operands, [](const LambdaOcc::Operand &Op) {
-               return !Op.isBottom() && Op.HasRealUse;
+               return Op.ReprOcc && Op.HasRealUse;
              });
     };
     auto alreadyTraversed = [](LambdaOcc &L) { return !L.Earlier; };
@@ -303,10 +281,9 @@ public:
   RedGraph &propagateUpUnsafe() {
     auto push = [](LambdaOcc &L, LambdaStack &Stack) {
       for (LambdaOcc::Operand &Op : L.Operands)
-        if (Occurrence *Occ = Op.asOcc())
-          if (!Op.HasRealUse && Occ->Type == OccTy::Lambda &&
-              Occ->asLambda()->UpSafe)
-            Stack.push_back(Occ->asLambda());
+        if (Op.ReprOcc && !Op.HasRealUse && Op.ReprOcc->Type == OccTy::Lambda &&
+            Op.ReprOcc->asLambda()->UpSafe)
+          Stack.push_back(Op.ReprOcc->asLambda());
     };
     auto initialCond = [](LambdaOcc &L) { return !L.UpSafe; };
     // If the top entry of the lambda stack is up-unsafe, then it and its
@@ -437,8 +414,7 @@ public:
 
   void handlePredecessor(const BasicBlock &Pred, BasicBlock &CurBlock) {
     if (LambdaOcc *L = FRG->getLambda(Pred))
-      L->addOperand(ReprOcc ? LambdaOcc::Operand(*ReprOcc, CrossedRealOcc)
-                            : LambdaOcc::Operand(CurBlock));
+      L->addOperand(CurBlock, ReprOcc, CrossedRealOcc);
   }
 };
 
@@ -580,15 +556,16 @@ struct FRGAnnot final : public AssemblyAnnotationWriter {
       assert(L->Operands.size() > 1 &&
              "IDFCalculator computed an unnecessary lambda.");
       auto PrintOperand = [&](const LambdaOcc::Operand &Op) {
-        OS << "{" << Op.getBlock().getName() << ", ";
-        if (Op.isBottom())
+        OS << "{" << Op.Block->getName() << ", ";
+        if (!Op.ReprOcc)
           OS << "_|_";
-        else if (Op.asOcc() == &DeadOnExit)
+        else if (Op.ReprOcc == &DeadOnExit)
           OS << "DeadOnExit";
         else
-          OS << Op.asOcc()->ID;
+          OS << Op.ReprOcc->ID;
         if (Op.HasRealUse)
           OS << "*";
+        OS << "}";
       };
       OS << "; Lambda(";
       PrintOperand(L->Operands[0]);
