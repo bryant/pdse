@@ -194,20 +194,6 @@ struct LambdaOcc final : public Occurrence {
   void resetEarlier() { Earlier = false; }
 
   bool willBeAnt() const { return CanBeAnt && !Earlier; }
-
-  void fillBottom(RealOcc &R) {
-    if (HasBottom) {
-      for (const Operand &Op : Operands) {
-        if (Op.isBottom()) {
-          R.Inst->clone()->insertBefore(Op.getBlock().begin());
-          PerBlock[&Op.getBlock()].push_back(*Op.getBlock().begin());
-        }
-      }
-      HasBottom = false;
-      return true;
-    }
-    return false;
-  }
 };
 
 // A faux occurrence used to detect stores to non-escaping memory that are
@@ -689,7 +675,7 @@ bool runPDSE(Function &F, AliasAnalysis &AA, PostDominatorTree &PDT,
              const TargetLibraryInfo &TLI) {
   OccTracker Worklist;
   BlockInsts PerBlock;
-  DenseMap<const Instruction *, MemOrThrow *> InstToMOT;
+  DenseMap<const Instruction *, std::list<MemOrThrow>::iterator> InstToMOT;
   DenseSet<const Value *> NonEscapes;
   DenseSet<const Value *> Returns;
 
@@ -711,6 +697,7 @@ bool runPDSE(Function &F, AliasAnalysis &AA, PostDominatorTree &PDT,
       ModRefInfo MRI = AA.getModRefInfo(&I);
       if (MRI & MRI_ModRef || I.mayThrow()) {
         DEBUG(dbgs() << "Interesting: " << I << "\n");
+        InstToMOT[&I] = PerBlock[&BB].end();
         PerBlock[&BB].push_back({&I, bool(MRI & MRI_ModRef)});
         InstToMOT[&I] = PerBlock[&BB].back();
         if (MRI & MRI_Mod)
@@ -748,12 +735,24 @@ bool runPDSE(Function &F, AliasAnalysis &AA, PostDominatorTree &PDT,
             case OccTy::Lambda:
               if (!Repr->asLambda()->willBeAnt())
                 break;
-              Repr->asLambda()->fillBottom(R);
+              // Fill the bottoms of this lambda.
+              if (Repr->asLambda()->HasBottom) {
+                for (LambdaOcc::Operand &Op : Repr->asLambda()->Operands) {
+                  // TODO: break crit edges
+                  if (Op.isBottom()) {
+                    R.Inst->clone()->insertBefore(&*Op.getBlock().begin());
+                    PerBlock[&Op.getBlock()].emplace_back(
+                        MemOrThrow{&*Op.getBlock().begin(), true});
+                  }
+                }
+                Repr->asLambda()->HasBottom = false;
+              }
             case OccTy::Real:
-              DEBUG(dbgs() << "DSEing " << *Repr->Inst << "\n");
+              DEBUG(dbgs() << "DSEing " << *R.Inst << "\n");
               R.Inst->eraseFromParent();
               if (PerBlock.count(R.Block))
-                PerBlock.erase(InstToMOT.find(R.Inst));
+                PerBlock.find(R.Block)->second.erase(
+                    InstToMOT.find(R.Inst)->second);
             }
     }
   }
