@@ -145,10 +145,17 @@ struct LambdaOcc final : public Occurrence {
 
     bool isBottom() const { return ReprOcc.is<BasicBlock *>(); }
 
+    const Occurrence *asOcc() const { return ReprOcc.dyn_cast<Occurrence *>(); }
+
     Occurrence *asOcc() { return ReprOcc.dyn_cast<Occurrence *>(); }
 
     BasicBlock &getBlock() {
-      return isBottom() ? &ReprOcc.get<BasicBlock *>()
+      return isBottom() ? *ReprOcc.get<BasicBlock *>()
+                        : *ReprOcc.dyn_cast<Occurrence *>()->Block;
+    }
+
+    const BasicBlock &getBlock() const {
+      return isBottom() ? *ReprOcc.get<BasicBlock *>()
                         : *ReprOcc.dyn_cast<Occurrence *>()->Block;
     }
   };
@@ -171,7 +178,7 @@ struct LambdaOcc final : public Occurrence {
     assert(Op.ReprOcc && "ReprOcc can't be nullptr.");
     Operands.push_back(std::move(Op));
     HasBottom |= Operands.back().isBottom();
-    if (auto *Occ = Operands.back().asOcc())
+    if (Occurrence *Occ = Operands.back().asOcc())
       if (Occ->Type == OccTy::Lambda)
         Occ->asLambda()->Users.push_back({this, &Operands.back()});
     return *this;
@@ -590,10 +597,10 @@ struct FRGAnnot final : public AssemblyAnnotationWriter {
         OS << "{" << Op.getBlock().getName() << ", ";
         if (Op.isBottom())
           OS << "_|_";
-        else if (Op.ReprOcc.asOcc() == &DeadOnExit)
+        else if (Op.asOcc() == &DeadOnExit)
           OS << "DeadOnExit";
         else
-          OS << Op.ReprOcc.asOcc()->ID;
+          OS << Op.asOcc()->ID;
         if (Op.HasRealUse)
           OS << "*";
       };
