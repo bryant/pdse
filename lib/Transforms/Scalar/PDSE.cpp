@@ -674,9 +674,8 @@ bool runPDSE(Function &F, AliasAnalysis &AA, PostDominatorTree &PDT,
       ModRefInfo MRI = AA.getModRefInfo(&I);
       if (MRI & MRI_ModRef || I.mayThrow()) {
         DEBUG(dbgs() << "Interesting: " << I << "\n");
-        InstToMOT[&I] = PerBlock[&BB].end();
         PerBlock[&BB].push_back({&I, bool(MRI & MRI_ModRef)});
-        InstToMOT[&I] = PerBlock[&BB].back();
+        InstToMOT[&I] = std::prev(PerBlock[&BB].end());
         if (MRI & MRI_Mod)
           if (auto LocOcc = makeRealOcc(I, AA))
             Worklist.push_back(std::move(LocOcc->first),
