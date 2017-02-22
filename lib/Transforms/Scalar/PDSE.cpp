@@ -839,7 +839,6 @@ public:
     AU.addRequired<TargetLibraryInfoWrapperPass>();
 
     AU.setPreservesCFG();
-    AU.addPreserved<PostDominatorTreeWrapperPass>();
     AU.addPreserved<GlobalsAAWrapperPass>();
   }
 
@@ -867,7 +866,6 @@ PreservedAnalyses PDSEPass::run(Function &F, FunctionAnalysisManager &AM) {
 
   PreservedAnalyses PA;
   PA.preserveSet<CFGAnalyses>();
-  PA.preserve<PostDominatorTreeAnalysis>();
   PA.preserve<GlobalsAA>();
   return PA;
 }
