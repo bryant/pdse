@@ -497,8 +497,11 @@ public:
   void handlePostDomExit() { updateUpSafety(); }
 
   void handlePredecessor(const BasicBlock &Pred, BasicBlock &CurBlock) {
-    if (LambdaOcc *L = FRG->getLambda(Pred))
+    if (LambdaOcc *L = FRG->getLambda(Pred)) {
+      DEBUG(dbgs() << "Connecting " << CurBlock.getName() << " to lambda in "
+                   << Pred.getName() << "\n");
       L->addOperand(CurBlock, ReprOcc, CrossedRealOcc);
+    }
   }
 };
 
@@ -575,8 +578,10 @@ public:
   PostDomRenamer &insertLambdas(RedGraph &FRG) {
     SmallVector<BasicBlock *, 8> LambdaBlocks;
     computeLambdaBlocks(LambdaBlocks, FRG);
-    for (BasicBlock *BB : LambdaBlocks)
+    for (BasicBlock *BB : LambdaBlocks) {
+      DEBUG(dbgs() << "Inserting lambda at " << BB->getName() << "\n");
       FRG.addLambda(LambdaOcc(BB), *BB);
+    }
     return *this;
   }
 
@@ -756,13 +761,16 @@ bool runPDSE(Function &F, AliasAnalysis &AA, PostDominatorTree &PDT,
 
       ModRefInfo MRI = AA.getModRefInfo(&I);
       if (MRI & MRI_ModRef || I.mayThrow()) {
-        DEBUG(dbgs() << "Interesting: " << I << "\n");
         PerBlock[&BB].push_back({&I, bool(MRI & MRI_ModRef)});
         InstToMOT[&I] = std::prev(PerBlock[&BB].end());
-        if (MRI & MRI_Mod)
-          if (auto LocOcc = makeRealOcc(I, AA))
+        if (MRI & MRI_Mod) {
+          if (auto LocOcc = makeRealOcc(I, AA)) {
+            DEBUG(dbgs() << "Got a loc: " << *LocOcc->first.Ptr << " + "
+                         << LocOcc->first.Size << "\n");
             Worklist.push_back(std::move(LocOcc->first),
                                std::move(LocOcc->second), AA);
+          }
+        }
       }
     }
 
