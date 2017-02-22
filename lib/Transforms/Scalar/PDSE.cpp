@@ -623,9 +623,9 @@ struct FRGAnnot final : public AssemblyAnnotationWriter {
 Optional<std::pair<MemoryLocation, RealOcc>> makeRealOcc(Instruction &Inst,
                                                          AliasAnalysis &AA) {
   using std::make_pair;
-  if (StoreInst *SI = dyn_cast<StoreInst>(&Inst))
+  if (auto *SI = dyn_cast<StoreInst>(&Inst))
     return make_pair(MemoryLocation::get(SI), RealOcc::noKill(Inst));
-  if (MemIntrinsic *MI = dyn_cast<MemIntrinsic>(&Inst)) {
+  else if (auto *MI = dyn_cast<MemIntrinsic>(&Inst)) {
     auto Loc = MemoryLocation::getForDest(MI);
     return make_pair(Loc, (AA.getModRefInfo(MI, Loc) & MRI_Ref
                                ? RealOcc::upKill
