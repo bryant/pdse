@@ -74,6 +74,9 @@ static cl::opt<bool> RunLoadCombine("combine-loads", cl::init(false),
 static cl::opt<bool> RunNewGVN("enable-newgvn", cl::init(false), cl::Hidden,
                                cl::desc("Run the NewGVN pass"));
 
+static cl::opt<bool> RunPDSE("enable-pdse", cl::init(false), cl::Hidden,
+                             cl::desc("Run with PDSE instead of DSE."));
+
 static cl::opt<bool>
 RunSLPAfterLoopVectorization("run-slp-after-loop-vectorization",
   cl::init(true), cl::Hidden,
@@ -158,6 +161,7 @@ PassManagerBuilder::PassManagerBuilder() {
     RerollLoops = RunLoopRerolling;
     LoadCombine = RunLoadCombine;
     NewGVN = RunNewGVN;
+    PDSE = RunPDSE;
     DisableGVNLoadPRE = false;
     VerifyInput = false;
     VerifyOutput = false;
@@ -347,7 +351,8 @@ void PassManagerBuilder::addFunctionSimplificationPasses(
   addExtensionsToPM(EP_Peephole, MPM);
   MPM.add(createJumpThreadingPass());         // Thread jumps
   MPM.add(createCorrelatedValuePropagationPass());
-  MPM.add(createDeadStoreEliminationPass());  // Delete dead stores
+  MPM.add(PDSE ? createPDSEPass()
+               : createDeadStoreEliminationPass()); // Delete dead stores
   MPM.add(createLICMPass());
 
   addExtensionsToPM(EP_ScalarOptimizerLate, MPM);
@@ -780,8 +785,8 @@ void PassManagerBuilder::addLTOOptimizationPasses(legacy::PassManagerBase &PM) {
                 : createGVNPass(DisableGVNLoadPRE)); // Remove redundancies.
   PM.add(createMemCpyOptPass());            // Remove dead memcpys.
 
-  // Nuke dead stores.
-  PM.add(createDeadStoreEliminationPass());
+  PM.add(PDSE ? createPDSEPass()                   // Really nuke dead stores.
+              : createDeadStoreEliminationPass()); // Nuke dead stores.
 
   // More loops are countable; try to optimize them.
   PM.add(createIndVarSimplifyPass());

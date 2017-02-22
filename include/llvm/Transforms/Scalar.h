@@ -75,6 +75,12 @@ FunctionPass *createDeadStoreEliminationPass();
 
 //===----------------------------------------------------------------------===//
 //
+// PDSE - This pass deletes both partially and fully redundant stores.
+//
+FunctionPass *createPDSEPass();
+
+//===----------------------------------------------------------------------===//
+//
 // AggressiveDCE - This pass uses the SSA based Aggressive DCE algorithm.  This
 // algorithm assumes instructions are dead until proven otherwise, which makes
 // it more successful are removing non-obviously dead instructions.

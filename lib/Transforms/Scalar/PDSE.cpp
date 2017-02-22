@@ -877,4 +877,6 @@ PreservedAnalyses PDSEPass::run(Function &F, FunctionAnalysisManager &AM) {
   PA.preserve<GlobalsAA>();
   return PA;
 }
+
+FunctionPass *createPDSEPass() { return new PDSELegacyPass(); }
 } // end namespace llvm

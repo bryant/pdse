@@ -152,6 +152,7 @@ public:
   bool LoadCombine;
   bool NewGVN;
   bool DisableGVNLoadPRE;
+  bool PDSE;
   bool VerifyInput;
   bool VerifyOutput;
   bool MergeFunctions;
