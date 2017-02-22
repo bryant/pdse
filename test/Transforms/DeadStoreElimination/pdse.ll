@@ -71,12 +71,6 @@ exit:
 ;     ret void
 ; }
 
-; define void @h(i8* noalias %x, i8* noalias %y) {
-;     %whatever = load i8, i8* %x
-;     store i8 %whatever, i8* %y
-;     ret void
-; }
-;
 ; define void @i(i8* noalias %x, i8* noalias %y, i1 %z) {
 ;     %whatever = load i8, i8* %x
 ;     br label %nextblock
