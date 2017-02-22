@@ -367,7 +367,7 @@ private:
     // occurrence:
     //   - aliasing kill
     //   - may-alias store
-    //   - function exit
+    //   - function entry
     // In a post-dom pre-order walk, this is equivalent to encountering any of
     // these while the current repr occ is a lambda.
     if (ReprOcc && ReprOcc->Type == OccTy::Lambda && !CrossedRealOcc)
