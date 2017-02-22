@@ -7,7 +7,7 @@ declare void @llvm.memcpy.p0i8.p0i8.i64(i8*, i8*, i64 , i32 , i1 )
 declare void @llvm.memmove.p0i8.p0i8.i64(i8*, i8*, i64, i32, i1)
 declare void @llvm.memset.p0i8.i64(i8*, i8, i64, i32, i1)
 
-define void @lo_and_chow(i8* %x) {
+define void @lo_and_chow(i8* %x, i1 %br0, i1 %br1) {
 ; CHECK-LABEL: @lo_and_chow(
 ; CHECK-NEXT:  bb0:
 ; CHECK-NEXT:    br label [[BB1:%.*]]
@@ -24,16 +24,18 @@ define void @lo_and_chow(i8* %x) {
 ; CHECK-NEXT:    ret void
 ;
 bb0:
-  store i8 undef, i8* %x
+  %v = load i8, i8* %x
+  %v1 = add nuw i8 %v, 1
+  store i8 %v1, i8* %x
   br label %bb1
 bb1:
-  br i1 undef, label %bb2, label %bb3
+  br i1 %br0, label %bb2, label %bb3
 bb2:
   %t = load i8, i8* %x
   br label %bb3
 bb3:
-  store i8 undef, i8* %x
-  br i1 undef, label %bb1, label %exit
+  store i8 %v1, i8* %x
+  br i1 %br1, label %bb1, label %exit
 exit:
   ret void
 }
@@ -164,7 +166,7 @@ bb4:
   ret void
 }
 
-define void @memcpy_example(i8* %a, i8* %b) {
+define void @memcpy_example(i8* %a, i8* %b, i1 %br0) {
 ; CHECK-LABEL: @memcpy_example(
 ; CHECK-NEXT:  bb0:
 ; CHECK-NEXT:    br i1 undef, label [[BB1:%.*]], label [[BB2:%.*]]
@@ -179,7 +181,7 @@ define void @memcpy_example(i8* %a, i8* %b) {
 ;
 bb0:
   call void @llvm.memcpy.p0i8.p0i8.i64(i8* %a, i8* %b, i64 64, i32 8, i1 false)
-  br i1 undef, label %bb1, label %bb2
+  br i1 %br0, label %bb1, label %bb2
 bb1:
   call void @llvm.memcpy.p0i8.p0i8.i64(i8* %a, i8* %b, i64 64, i32 8, i1 false)
   br label %bb3
