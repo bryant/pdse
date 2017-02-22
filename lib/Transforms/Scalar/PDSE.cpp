@@ -67,6 +67,7 @@
 #include "llvm/Support/FormattedStream.h"
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Transforms/Scalar/PDSE.h"
+#include "llvm/Transforms/Utils/BasicBlockUtils.h"
 
 #include <list>
 
@@ -787,32 +788,32 @@ bool runPDSE(Function &F, AliasAnalysis &AA, PostDominatorTree &PDT,
       dbgs() << "\n";
     }
 
+    // Convert partial redundancies to full ones, if we can.
+    for (auto &BBL : FRG.Lambdas) {
+      LambdaOcc &L = BBL.second;
+      if (Instruction *I = L.createInsertionOcc()) {
+        for (BasicBlock *Succ : L.NullOperands) {
+          BasicBlock *Split = SplitCriticalEdge(L.Block, Succ);
+          BasicBlock *BB = Split ? Split : Succ;
+          I->insertBefore(&*BB->begin());
+          // In the future, we should not need to update PerBlock.
+          PerBlock[BB].emplace_back(MemOrThrow{I, true});
+        }
+        L.NullOperands.clear();
+      }
+    }
+
     for (auto &BlockOccs : FRG.BlockOccs)
       for (RealOcc &R : BlockOccs.second)
-        if (Occurrence *Repr = R.ReprOcc)
-          switch (Repr->Type) {
-          case OccTy::Lambda:
-            if (!Repr->asLambda()->willBeAnt())
-              break;
-            // Fill the bottoms of this lambda.
-            if (Repr->asLambda()->HasBottom) {
-              for (LambdaOcc::Operand &Op : Repr->asLambda()->Operands) {
-                // TODO: break crit edges
-                if (!Op.ReprOcc) {
-                  R.Inst->clone()->insertBefore(&*Op.Block->begin());
-                  PerBlock[Op.Block].emplace_back(
-                      MemOrThrow{&*Op.Block->begin(), true});
-                }
-              }
-              Repr->asLambda()->HasBottom = false;
-            }
-          case OccTy::Real:
-            DEBUG(dbgs() << "DSEing " << *R.Inst << "\n");
-            if (PerBlock.count(R.Block))
-              PerBlock.find(R.Block)->second.erase(
-                  InstToMOT.find(R.Inst)->second);
-            R.Inst->eraseFromParent();
-          }
+        if (R.ReprOcc && (R.ReprOcc->Type == OccTy::Real ||
+                          (R.ReprOcc->Type == OccTy::Lambda &&
+                           R.ReprOcc->asLambda()->NullOperands.empty()))) {
+          DEBUG(dbgs() << "DSEing " << *R.Inst << "\n");
+          // In the future, we should not need to update PerBlock.
+          if (PerBlock.count(R.Block))
+            PerBlock[R.Block].erase(InstToMOT.find(R.Inst)->second);
+          R.Inst->eraseFromParent();
+        }
   }
   return false;
 }
