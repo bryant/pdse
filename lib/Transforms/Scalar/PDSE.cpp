@@ -141,16 +141,21 @@ struct LambdaOcc final : public Occurrence {
   struct Operand {
     BasicBlock *Block;
     Occurrence *ReprOcc;
-    // ^ Representative occurrence dominating this operand. nullptr = _|_.
+    // ^ Representative occurrence dominating this operand. Never nullptr.
     bool HasRealUse;
     // ^ Is there a real occurrence on some path from ReprOcc to this operand's
-    // lambda? Always false for _|_ operands.
+    // lambda?
+    Operand(BasicBlock &BB, Occurrence &ReprOcc, bool HasRealUse)
+        : Block(&BB), ReprOcc(&ReprOcc), HasRealUse(HasRealUse) {}
   };
 
   SmallVector<Operand, 8> Operands;
-  SmallVector<std::pair<LambdaOcc *, Operand *>, 8> Users;
+  SmallVector<BasicBlock *, 8> NullOperands;
+  // ^ All _|_ operands.
+  SmallVector<std::pair<LambdaOcc *, Operand *>, 8> LambdaUsers;
   // ^ Needed by the lambda refinement phases `CanBeAnt` and `Earlier`.
-  bool HasBottom;
+  SmallVector<std::pair<RealOcc *, BasicBlock *>, 8> PartialOccs;
+  // ^ Closest real uses that don't post-dom one another.
 
   // Consult the Kennedy et al. paper for these.
   bool UpSafe;
@@ -158,15 +163,19 @@ struct LambdaOcc final : public Occurrence {
   bool Earlier;
 
   LambdaOcc(BasicBlock *Block)
-      : Occurrence{-1u, Block, OccTy::Lambda}, Operands{}, HasBottom(false),
-        UpSafe(true), CanBeAnt(true), Earlier(true) {}
+      : Occurrence{-1u, Block, OccTy::Lambda}, Operands(), NullOperands(),
+        LambdaUsers(), PartialOccs(), UpSafe(true), CanBeAnt(true),
+        Earlier(true) {}
 
   LambdaOcc &addOperand(BasicBlock &Succ, Occurrence *ReprOcc,
                         bool HasRealUse) {
-    Operands.push_back({&Succ, ReprOcc, HasRealUse});
-    HasBottom |= !ReprOcc;
-    if (ReprOcc && ReprOcc->Type == OccTy::Lambda)
-      ReprOcc->asLambda()->Users.push_back({this, &Operands.back()});
+    if (ReprOcc) {
+      Operands.push_back(Operand(Succ, *ReprOcc, HasRealUse));
+      if (ReprOcc->Type == OccTy::Lambda)
+        ReprOcc->asLambda()->LambdaUsers.push_back({this, &Operands.back()});
+    } else {
+      NullOperands.push_back(&Succ);
+    }
     return *this;
   }
 
@@ -247,7 +256,7 @@ private:
   void computeCanBeAnt() {
     auto push = [](LambdaOcc &L, LambdaStack &Stack) {
       L.resetCanBeAnt();
-      for (auto &LO : L.Users)
+      for (auto &LO : L.LambdaUsers)
         if (!LO.second->HasRealUse && !LO.first->UpSafe && LO.first->CanBeAnt)
           Stack.push_back(LO.first);
     };
@@ -264,7 +273,7 @@ private:
   void computeEarlier() {
     auto push = [](LambdaOcc &L, LambdaStack &Stack) {
       L.resetEarlier();
-      for (auto &LO : L.Users)
+      for (auto &LO : L.LambdaUsers)
         if (LO.first->Earlier)
           Stack.push_back(LO.first);
     };
@@ -349,6 +358,7 @@ struct RenameState {
   // ^ Current representative occurrence, or nullptr for _|_.
   bool CrossedRealOcc;
   // ^ Have we crossed a real occurrence since the last non-kill occurrence?
+  BasicBlock *LambdaPred;
 
 private:
   void updateUpSafety() const {
@@ -379,11 +389,18 @@ private:
   }
 
 public:
-  RenameState enterBlock(const BasicBlock &BB) const {
+  RenameState enterBlock(BasicBlock &BB) const {
     DEBUG(dbgs() << "Entering block " << BB.getName() << "\n");
-    // Set the current repr occ to the new block's lambda, if it contains one.
-    LambdaOcc *L = FRG->getLambda(BB);
-    return L ? RenameState{FRG, NextID, &assignID(*L), false} : *this;
+    if (LambdaOcc *L = FRG->getLambda(BB)) {
+      // This block's lambda is the new repr occ.
+      return RenameState{FRG, NextID, &assignID(*L), false, &BB};
+    } else if (LambdaPred && FRG->getLambda(*LambdaPred)) {
+      // Record that we've entered a lambda block's predecessor.
+      RenameState S = *this;
+      S.LambdaPred = &BB;
+      return S;
+    }
+    return *this;
   }
 
   RealOcc &handleRealOcc(RealOcc &R) {
@@ -397,6 +414,13 @@ public:
       R.ReprOcc = ReprOcc;
       // Current occ is a repr occ if we've just emerged from a kill.
       ReprOcc = ReprOcc ? ReprOcc : &R;
+      // If lambda, track its PRE insertion candidates. These are real occs to
+      // which the lambda is directly exposed.
+      if (LambdaPred) {
+        assert(ReprOcc->Type == OccTy::Lambda);
+        ReprOcc->asLambda()->PartialOccs.push_back({&R, LambdaPred});
+        LambdaPred = nullptr;
+      }
       return R;
     }
     case RealOcc::UpKill:
@@ -506,7 +530,7 @@ public:
 
   PostDomRenamer &renamePass(RedGraph &FRG) {
     unsigned NextID = 0;
-    RenameState RootState{&FRG, &NextID, nullptr, false};
+    RenameState RootState{&FRG, &NextID, nullptr, false, nullptr};
     if (!FRG.Escapes && !FRG.Returned) {
       // Use an exit occurrence (cf. Brethour, Stanley, Wendling 2002) to
       // detect trivially dead non-escaping non-returning stores.
@@ -561,13 +585,12 @@ struct FRGAnnot final : public AssemblyAnnotationWriter {
   virtual void emitBasicBlockEndAnnot(const BasicBlock *BB,
                                       formatted_raw_ostream &OS) override {
     if (const LambdaOcc *L = FRG.getLambda(*BB)) {
-      assert(L->Operands.size() > 1 &&
+      assert(L->Operands.size() + L->NullOperands.size() > 1 &&
              "IDFCalculator computed an unnecessary lambda.");
       auto PrintOperand = [&](const LambdaOcc::Operand &Op) {
+        assert(Op.ReprOcc && "_|_ operands belong to NullOperands.");
         OS << "{" << Op.Block->getName() << ", ";
-        if (!Op.ReprOcc)
-          OS << "_|_";
-        else if (Op.ReprOcc == &DeadOnExit)
+        if (Op.ReprOcc == &DeadOnExit)
           OS << "DeadOnExit";
         else
           OS << Op.ReprOcc->ID;
@@ -576,12 +599,12 @@ struct FRGAnnot final : public AssemblyAnnotationWriter {
         OS << "}";
       };
       OS << "; Lambda(";
-      PrintOperand(L->Operands[0]);
-      for (const LambdaOcc::Operand &Op :
-           make_range(std::next(L->Operands.begin()), L->Operands.end())) {
-        OS << ", ";
+      for (const LambdaOcc::Operand &Op : L->Operands) {
         PrintOperand(Op);
+        OS << ", ";
       }
+      for (const BasicBlock *Pred : L->NullOperands)
+        OS << "{" << Pred->getName() << ", _|_}, ";
       bool WillBeAnt = L->CanBeAnt && !L->Earlier;
       OS << ") = " << L->ID << "\t" << (L->UpSafe ? "U " : "~U ")
          << (L->CanBeAnt ? "C " : "~C ") << (L->Earlier ? "E " : "~E ")
