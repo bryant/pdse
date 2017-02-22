@@ -189,6 +189,57 @@ struct LambdaOcc final : public Occurrence {
   void resetEarlier() { Earlier = false; }
 
   bool willBeAnt() const { return CanBeAnt && !Earlier; }
+
+  static Value *getStoreOperand(Instruction &I) {
+    if (auto *SI = dyn_cast<StoreInst>(&I)) {
+      return SI->getValueOperand();
+    } else if (auto *MI = dyn_cast<MemSetInst>(&I)) {
+      return MI->getValue();
+    } else if (auto *MI = dyn_cast<MemTransferInst>(&I)) {
+      return MI->getRawSource();
+    } else {
+      llvm_unreachable("Unknown real occurrence type.");
+    }
+  }
+
+  static Instruction &setStoreOperand(Instruction &I, Value &V) {
+    if (auto *SI = dyn_cast<StoreInst>(&I)) {
+      SI->setOperand(0, &V);
+    } else if (auto *MI = dyn_cast<MemSetInst>(&I)) {
+      MI->setValue(&V);
+    } else if (auto *MI = dyn_cast<MemTransferInst>(&I)) {
+      MI->setSource(&V);
+    } else {
+      llvm_unreachable("Unknown real occurrence type.");
+    }
+    return I;
+  }
+
+  Instruction *createInsertionOcc() {
+    if (willBeAnt() && NullOperands.size() > 0) {
+      if (PartialOccs.size() == 1) {
+        return PartialOccs[0].first->Inst->clone();
+      } else if (PartialOccs.size() > 1) {
+        RealOcc *First = PartialOccs[0].first;
+        // The closest real occ users must have the same instruction type
+        auto Same = [&](const std::pair<RealOcc *, BasicBlock *> &RealUse) {
+          return RealUse.first->Inst->getOpcode() == First->Inst->getOpcode();
+        };
+        if (std::all_of(std::next(PartialOccs.begin()), PartialOccs.end(),
+                        Same)) {
+          assert(getStoreOperand(*First->Inst) && "Expected store operand.");
+          PHINode *P = IRBuilder<>(Block, Block->begin())
+                           .CreatePHI(getStoreOperand(*First->Inst)->getType(),
+                                      PartialOccs.size());
+          for (auto &RealUse : PartialOccs)
+            P->addIncoming(getStoreOperand(*RealUse.first->Inst),
+                           RealUse.second);
+          return &setStoreOperand(*First->Inst->clone(), *P);
+        }
+      }
+    }
+    return nullptr;
+  }
 };
 
 // A faux occurrence used to detect stores to non-escaping memory that are
