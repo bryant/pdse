@@ -39,8 +39,16 @@
 //
 // Differences between the papers and this implementation:
 // - May-throw instructions count as killing occurrences in the factored
-//   redundancy graph of escaping stores;
-// - TODO: Figure out partial overwrite tracking.
+//   redundancy graph of escaping stores.
+// - The paper places lambdas at the IDF of every store and kill occurrences,
+//   but they are in fact only needed at the IDF of kill and representative
+//   stores.
+// - Fully redundant occurrences are killed on the spot, which means that each
+//   basic block needs to track at most one aliasing store, one kill, and two
+//   representative occurrences. This means FRGs use less storage and renaming
+//   is linear over the number of basic blocks.
+// - TODO: Handle partial overwrite tracking during the full redundancy
+//   elimination phase.
 //
 //===----------------------------------------------------------------------===//
 
