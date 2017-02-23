@@ -556,7 +556,7 @@ class PostDomRenamer {
           S.handleMayThrowKill(MOT.I);
         else if (RealOcc *R = FRG.getRealOcc(*MOT.I))
           S.handleRealOcc(*R);
-        else if (MOT.MemInst) {
+        else if (S.ReprOcc && MOT.MemInst) {
           ModRefInfo MRI = AA.getModRefInfo(MOT.I, FRG.Loc);
           if (MRI & MRI_Ref)
             S.handleAliasingKill(MOT.I);
