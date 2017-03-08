@@ -43,6 +43,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/Analysis/CaptureTracking.h"
 #include "llvm/Analysis/GlobalsModRef.h"
@@ -65,6 +66,9 @@
 #define DEBUG_TYPE "pdse"
 
 using namespace llvm;
+
+STATISTIC(NumStores, "Number of stores deleted");
+STATISTIC(NumPartialReds, "Number of partial redundancies converted.");
 
 static cl::opt<bool>
     PrintFRG("print-frg", cl::init(false), cl::Hidden,
@@ -615,6 +619,7 @@ struct PDSE {
   void dse(Instruction &I) {
     DEBUG(dbgs() << "DSE-ing " << I << " (" << I.getParent()->getName()
                  << ")\n");
+    ++NumStores;
     DeadStores.push_back(&I);
   }
 
@@ -723,8 +728,10 @@ struct PDSE {
             I->insertBefore(&*Succ->begin());
             DEBUG(dbgs() << "Inserting into " << Succ->getName() << "\n");
           }
-          for (LambdaOcc::RealUse &Use : L->Uses)
+          for (LambdaOcc::RealUse &Use : L->Uses) {
+            ++NumPartialReds;
             dse(Use.getInst());
+          }
         }
       }
     }
