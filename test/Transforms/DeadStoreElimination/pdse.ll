@@ -118,6 +118,7 @@ bb1:
   call void @llvm.memset.p0i8.i64(i8* %a, i8 undef, i64 32, i32 8, i1 false)
   %x = bitcast i8* %a to i64*
   %z = getelementptr i64, i64* %x, i64 1
+  store i8 undef, i8* %a
   store i64 undef, i64* %z
   store i8 undef, i8* %a
   ; ^ future full elim phase should kill this
