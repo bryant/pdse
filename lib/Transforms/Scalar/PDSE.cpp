@@ -275,6 +275,12 @@ private:
     }
   }
 
+  // If lambda P is repr occ to an operand of lambda Q and:
+  //   - Q is up-unsafe (i.e., there is a reverse path from Q to function entry
+  //     that doesn't cross any real occs of Q's class), and
+  //   - there are no real occs from P to Q,
+  // then we can conclude that P is up-unsafe too. We use this to propagate
+  // up-unsafety to the rest of the FRG.
   RedClass &propagateUpUnsafe() {
     auto push = [](LambdaOcc &L, LambdaStack &Stack) {
       for (LambdaOcc::Operand &Op : L.Defs)
@@ -325,316 +331,14 @@ private:
   }
 
 public:
-  // If:
-  //   - lambda P is repr occ to an operand of lambda Q,
-  //   - Q is up-unsafe (i.e., there is a reverse path from Q to function entry
-  //     that doesn't cross any real occs of Q's class), and
-  //   - there are no real occs from P to Q,
-  // then we can conclude that P is up-unsafe too. We use this to propagate
-  // up-unsafety to the rest of the FRG.
   RedClass &willBeAnt() {
     return propagateUpUnsafe().computeCanBeAnt().computeEarlier();
   }
 };
 
-struct RenameState {
-  RedGraph *FRG;
-  unsigned *NextID;
-  Occurrence *ReprOcc;
-  // ^ Current representative occurrence, or nullptr for _|_.
-  bool CrossedRealOcc;
-  // ^ Have we crossed a real occurrence since the last non-kill occurrence?
-  BasicBlock *LambdaPred;
-
-private:
-  void updateUpSafety() const {
-    // We can immediately conclude a lambda to be up-unsafe if it
-    // reverse-reaches any of the following without first crossing a real
-    // occurrence:
-    //   - aliasing kill
-    //   - may-alias store
-    //   - function entry
-    // In a post-dom pre-order walk, this is equivalent to encountering any of
-    // these while the current repr occ is a lambda.
-    if (ReprOcc && ReprOcc->Type == OccTy::Lambda && !CrossedRealOcc)
-      ReprOcc->asLambda()->resetUpSafe();
-  }
-
-  void kill(Instruction *I) {
-    ReprOcc = nullptr;
-    CrossedRealOcc = false;
-    if (I)
-      FRG->addKillOcc(*I);
-  }
-
-  // This works because post-dom pre-order visits each block exactly once.
-  Occurrence &assignID(Occurrence &Occ) const {
-    Occ.ID = *NextID;
-    *NextID += 1;
-    return Occ;
-  }
-
-public:
-  RenameState enterBlock(BasicBlock &BB) const {
-    DEBUG(dbgs() << "Entering block " << BB.getName() << "\n");
-    if (LambdaOcc *L = FRG->getLambda(BB)) {
-      // This block's lambda is the new repr occ.
-      return RenameState{FRG, NextID, &assignID(*L), false, &BB};
-    } else if (LambdaPred && FRG->getLambda(*LambdaPred)) {
-      // Record that we've entered a lambda block's predecessor.
-      RenameState S = *this;
-      S.LambdaPred = &BB;
-      return S;
-    }
-    return *this;
-  }
-
-  RealOcc &handleRealOcc(RealOcc &R) {
-    assignID(R);
-    switch (R.AlsoKills) {
-    case RealOcc::DownKill:
-      // DownKill means a kill on the higher-RPO-index side of the real occ.
-      kill(nullptr);
-    case RealOcc::NoKill: {
-      CrossedRealOcc = true;
-      R.ReprOcc = ReprOcc;
-      // Current occ is a repr occ if we've just emerged from a kill.
-      ReprOcc = ReprOcc ? ReprOcc : &R;
-      // If lambda, track its PRE insertion candidates. These are real occs to
-      // which the lambda is directly exposed.
-      if (LambdaPred) {
-        assert(ReprOcc->Type == OccTy::Lambda);
-        ReprOcc->asLambda()->PartialOccs.push_back({&R, LambdaPred});
-        LambdaPred = nullptr;
-      }
-      return R;
-    }
-    case RealOcc::UpKill:
-      R.ReprOcc = ReprOcc;
-      kill(nullptr);
-      return R;
-    }
-  }
-
-  void handleMayThrowKill(Instruction *I) {
-    kill(I);
-    updateUpSafety();
-  }
-
-  void handleAliasingKill(Instruction *I) {
-    kill(I);
-    updateUpSafety();
-  }
-
-  void handleAliasingStore(Instruction *I) { updateUpSafety(); }
-
-  void handlePostDomExit() { updateUpSafety(); }
-
-  void handlePredecessor(const BasicBlock &Pred, BasicBlock &CurBlock) {
-    if (LambdaOcc *L = FRG->getLambda(Pred)) {
-      DEBUG(dbgs() << "Connecting " << CurBlock.getName() << " to lambda in "
-                   << Pred.getName() << "\n");
-      L->addOperand(CurBlock, ReprOcc, CrossedRealOcc);
-    }
-  }
-};
-
-// Tags an instruction that modrefs and/or may-throw. May-throws are
-// significant because they count as killing occurrences for escaping stores.
-struct MemOrThrow {
-  Instruction *I;
-  bool MemInst;
-};
-
-// Analogous to MemorySSA's AccessList, but for both memory and may-throw
-// instructions, in reverse.
-using BlockInsts = DenseMap<const BasicBlock *, std::list<MemOrThrow>>;
-
-class PostDomRenamer {
-  const BlockInsts &PerBlock;
-  AliasAnalysis &AA;
-  PostDominatorTree &PDT;
-
-  void computeLambdaBlocks(SmallVectorImpl<BasicBlock *> &LambdaBlocks,
-                           RedGraph &FRG) {
-    // Enumerate def blocks, which are all blocks containing kill and/or real
-    // occurrences. TODO: This could be done for all RedGraphs in a single pass
-    // through the function.
-    SmallPtrSet<BasicBlock *, 8> DefBlocks;
-    for (const auto &BB : FRG.BlockOccs)
-      DefBlocks.insert(const_cast<BasicBlock *>(BB.first));
-
-    // Account for kill-only blocks; if it contains a real occ, we already know
-    // about it.
-    for (const BlockInsts::value_type &BB : PerBlock)
-      if (!FRG.BlockOccs.count(const_cast<BasicBlock *>(BB.first)))
-        for (const MemOrThrow &MOT : BB.second)
-          if (MOT.MemInst && AA.getModRefInfo(MOT.I, FRG.Loc) & MRI_Ref) {
-            DefBlocks.insert(const_cast<BasicBlock *>(BB.first));
-            break;
-          }
-
-    // Compute lambdas.
-    ReverseIDFCalculator RIDF(PDT);
-    RIDF.setDefiningBlocks(DefBlocks);
-    RIDF.calculate(LambdaBlocks);
-  }
-
-  RenameState renameBlock(BasicBlock &BB, const RenameState &IPostDom,
-                          RedGraph &FRG) {
-    RenameState S = IPostDom.enterBlock(BB);
-    if (PerBlock.count(&BB)) {
-      for (const MemOrThrow &MOT : PerBlock.find(&BB)->second) {
-        DEBUG(dbgs() << "Visiting " << *MOT.I << "\n");
-        if (MOT.I->mayThrow() && FRG.Escapes)
-          S.handleMayThrowKill(MOT.I);
-        else if (RealOcc *R = FRG.getRealOcc(*MOT.I))
-          S.handleRealOcc(*R);
-        else if (S.ReprOcc && MOT.MemInst) {
-          ModRefInfo MRI = AA.getModRefInfo(MOT.I, FRG.Loc);
-          if (MRI & MRI_Ref)
-            S.handleAliasingKill(MOT.I);
-          else if (MRI & MRI_Mod)
-            S.handleAliasingStore(MOT.I);
-        }
-      }
-    }
-
-    if (&BB == &BB.getParent()->getEntryBlock())
-      S.handlePostDomExit();
-
-    for (BasicBlock *Pred : predecessors(&BB))
-      S.handlePredecessor(*Pred, BB);
-    return S;
-  }
-
-public:
-  PostDomRenamer &insertLambdas(RedGraph &FRG) {
-    SmallVector<BasicBlock *, 8> LambdaBlocks;
-    computeLambdaBlocks(LambdaBlocks, FRG);
-    for (BasicBlock *BB : LambdaBlocks) {
-      DEBUG(dbgs() << "Inserting lambda at " << BB->getName() << "\n");
-      FRG.addLambda(LambdaOcc(BB), *BB);
-    }
-    return *this;
-  }
-
-  PostDomRenamer &renamePass(RedGraph &FRG) {
-    unsigned NextID = 0;
-    RenameState RootState{&FRG, &NextID, nullptr, false, nullptr};
-    if (!FRG.Escapes && !FRG.Returned) {
-      // Use an exit occurrence (cf. Brethour, Stanley, Wendling 2002) to
-      // detect trivially dead non-escaping non-returning stores.
-      RootState.ReprOcc = &DeadOnExit;
-      RootState.CrossedRealOcc = true;
-      NextID = 1;
-    }
-
-    struct StackEntry {
-      DomTreeNode *Node;
-      DomTreeNode::iterator ChildIt;
-      RenameState S;
-    };
-
-    SmallVector<StackEntry, 16> Stack;
-    DomTreeNode *Root = PDT.getRootNode();
-    if (Root->getBlock()) {
-      // Real and unique exit block.
-      DEBUG(dbgs() << "Entering root " << Root->getBlock()->getName() << "\n");
-      Stack.push_back({Root, Root->begin(),
-                       renameBlock(*Root->getBlock(), RootState, FRG)});
-    } else
-      // Multiple exits and/or infinite loops.
-      for (DomTreeNode *N : *Root)
-        Stack.push_back(
-            {N, N->begin(), renameBlock(*N->getBlock(), RootState, FRG)});
-
-    // Visit blocks in post-dom pre-order
-    while (!Stack.empty()) {
-      if (Stack.back().ChildIt == Stack.back().Node->end())
-        Stack.pop_back();
-      else {
-        DomTreeNode *Cur = *Stack.back().ChildIt++;
-        RenameState NewS = renameBlock(*Cur->getBlock(), Stack.back().S, FRG);
-        if (Cur->begin() != Cur->end())
-          Stack.push_back({Cur, Cur->begin(), NewS});
-      }
-    }
-    return *this;
-  }
-
-  PostDomRenamer(const BlockInsts &PerBlock, AliasAnalysis &AA,
-                 PostDominatorTree &PDT)
-      : PerBlock(PerBlock), AA(AA), PDT(PDT) {}
-};
-
-struct FRGAnnot final : public AssemblyAnnotationWriter {
-  const RedGraph &FRG;
-
-  FRGAnnot(const RedGraph &FRG) : FRG(FRG) {}
-
-  virtual void emitBasicBlockEndAnnot(const BasicBlock *BB,
-                                      formatted_raw_ostream &OS) override {
-    if (const LambdaOcc *L = FRG.getLambda(*BB)) {
-      assert(L->Operands.size() + L->NullOperands.size() > 1 &&
-             "IDFCalculator computed an unnecessary lambda.");
-      auto PrintOperand = [&](const LambdaOcc::Operand &Op) {
-        assert(Op.ReprOcc && "_|_ operands belong to NullOperands.");
-        OS << "{" << Op.Block->getName() << ", ";
-        if (Op.ReprOcc == &DeadOnExit)
-          OS << "DeadOnExit";
-        else
-          OS << Op.ReprOcc->ID;
-        if (Op.HasRealUse)
-          OS << "*";
-        OS << "}";
-      };
-      OS << "; Lambda(";
-      for (const LambdaOcc::Operand &Op : L->Operands) {
-        PrintOperand(Op);
-        OS << ", ";
-      }
-      for (const BasicBlock *Pred : L->NullOperands)
-        OS << "{" << Pred->getName() << ", _|_}, ";
-      bool WillBeAnt = L->CanBeAnt && !L->Earlier;
-      OS << ") = " << L->ID << "\t" << (L->UpSafe ? "U " : "~U ")
-         << (L->CanBeAnt ? "C " : "~C ") << (L->Earlier ? "E " : "~E ")
-         << (WillBeAnt ? "W" : "~W") << "\n";
-    }
-  }
-
-  virtual void emitInstructionAnnot(const Instruction *I,
-                                    formatted_raw_ostream &OS) override {
-    auto printID = [&](const Occurrence &Occ) {
-      if (&Occ == &DeadOnExit)
-        OS << "DeadOnExit";
-      else
-        OS << Occ.ID;
-    };
-    if (FRG.isKillOcc(*I))
-      OS << "; Kill\n";
-    else if (const RealOcc *R = FRG.getRealOcc(*I)) {
-      OS << "; ";
-      if (R->AlsoKills == RealOcc::UpKill)
-        OS << "Kill + ";
-      if (R->ReprOcc) {
-        OS << "Real(";
-        printID(*R->ReprOcc);
-      } else {
-        OS << "Repr(";
-        printID(*R);
-      }
-      OS << ")";
-      if (R->AlsoKills == RealOcc::DownKill)
-        OS << " + Kill";
-      OS << "\n";
-    }
-  }
-};
-
 class EscapeTracker {
-  const DataLayout *DL;
-  const TargetLibraryInfo *TLI;
+  const DataLayout &DL;
+  const TargetLibraryInfo &TLI;
   DenseSet<const Value *> NonEscapes;
   DenseSet<const Value *> Returns;
 
@@ -661,7 +365,7 @@ public:
   }
 
   EscapeTracker(Function &F, const TargetLibraryInfo &TLI)
-      : DL(F.getParent()->getDataLayout()), TLI(&TLI) {
+      : DL(*F.getParent()->getDataLayout()), TLI(TLI) {
     // Record non-escaping args.
     for (Argument &Arg : F.args())
       if (Arg.hasByValOrInAllocaAttr())
@@ -671,7 +375,7 @@ public:
     for (BasicBlock &BB : F)
       if (auto *RI = dyn_cast<ReturnInst>(BB.getTerminator()))
         if (Value *RetVal = RI->getReturnValue())
-          Returns.insert(GetUnderlyingObject(RetVal, DL));
+          Returns.insert(GetUnderlyingObject(RetVal, &DL));
   }
 };
 
@@ -681,10 +385,9 @@ class AliasCache {
   // ^ used to check if a) one class aliases with another, b) a real occ's kill
   // loc aliases a certain class.
   DenseMap<std::pair<RedIdx, const Instruction *>, ModRefInfo> MRI;
-
-public:
   AliasAnalysis &AA;
 
+public:
   AliasCache(AliasAnalysis &AA) : AA(AA) {}
 
   AliasResult alias(RedIdx A, RedIdx B) const {
@@ -722,6 +425,7 @@ struct BlockInfo {
 
 struct PDSE {
   Function &F;
+  AliasAnalysis &AA;
   PostDominatorTree &PDT;
   const TargetLibraryInfo &TLI;
 
@@ -737,7 +441,7 @@ struct PDSE {
 
   PDSE(Function &F, AliasAnalysis &AA, PostDominatorTree &PDT,
        const TargetLibraryInfo &TLI)
-      : F(F), PDT(PDT), TLI(TLI), NextID(1), AC(AA), Tracker(F, TLI),
+      : F(F), AA(AA), PDT(PDT), TLI(TLI), NextID(1), AC(AA), Tracker(F, TLI),
         DeadOnExit(0, *F.getEntryBlock().getTerminator()) {}
 
   // If Inst has the potential to be a DSE candidate, return its write location
@@ -773,28 +477,24 @@ struct PDSE {
       }
     }
 
-    // Occ doesn't belong to any existing class, so start its own.
+    // Occ doesn't belong to any existing class, so start a new class.
     Worklist.emplace_back(
         RedClass(Loc, Tracker.escapesOnUnwind(Loc), Tracker.returned(Loc)));
     BelongsToClass[&Worklist.back().Loc] = &Worklist.back();
-    // CachedAliases.size() == Worklist.size() + 1
-    for (auto &Alias : enumerate(CachedAliases)) {
-      if (Alias.Value == MustAlias) {
+
+    // Cache aliasing info between new and existing classes.
+    for (RedIdx Idx = 0; Idx < CachedAliases.size(); Idx += 1) {
+      if (CachedAliases[Idx] == MustAlias) {
         // Found a class that could either overwrite or be overwritten by the
         // new class.
-        if (Worklist.back().Loc.Size >= Worklist[Alias.Index].Loc.Size)
-          Worklist[Alias.Index].Overwrites.push_back(Worklist.size() - 1);
-        else if (Worklist.back().Loc.Size <= Worklist[Alias.Index].Loc.Size)
-          Worklist.back().Overwrites.push_back(Alias.Index);
+        if (Worklist.back().Loc.Size >= Worklist[Idx].Loc.Size)
+          Worklist[Idx].Overwrites.push_back(Worklist.size() - 1);
+        else if (Worklist.back().Loc.Size <= Worklist[Idx].Loc.Size)
+          Worklist.back().Overwrites.push_back(Idx);
       }
-      AC.setAlias(Alias.Index, Worklist.size() - 1, Alias.Value);
+      AC.setAlias(Idx, Worklist.size() - 1, CachedAliases[Idx]);
     }
     return Worklist.size() - 1;
-  }
-
-  void addLambda(BasicBlock &BB, RedIdx Idx) {
-    Blocks[&BB].Lambdas.push_back(LambdaOcc(BB));
-    Worklist[Idx].Lambdas.push_back(&Blocks[&BB].Lambdas.back());
   }
 
   struct RenameState {
@@ -944,6 +644,35 @@ struct PDSE {
     }
   }
 
+  void convertPartialReds() {
+    // Maps a lambda block successor to either itself or its split edge block.
+    DenseMap<BasicBlock *, BasicBlock *> SplitBlocks;
+    for (RedClass &Class : Worklist) {
+      // Determine PRE-ability of this class' lambdas.
+      Class.willBeAnt();
+      for (LambdaOcc *L : Class.Lambdas)
+        if (L->NullDefs.empty()) {
+          // Already fully redundant, no PRE needed, trivially DSEs its uses.
+          for (LambdaOcc::RealUse &Use : L->Uses)
+            if (Use.Occ->canDSE())
+              DeadStores.push_back(Use.getInst());
+        } else if (Instruction *I = L->createInsertionOcc()) {
+          // L is partially redundant and can be PRE-ed.
+          for (BasicBlock *Succ : L.NullDefs) {
+            if (SplitBlocks.count(Succ))
+              Succ = SplitBlocks[Succ];
+            else if (BasicBlock *Split = SplitCriticalEdge(L->Block, Succ))
+              Succ = SplitBlocks[Succ] = Split;
+            else
+              Succ = SplitBlocks[Succ] = Succ;
+            I->insertBefore(&*Succ->begin());
+          }
+          for (LambdaOcc::RealUse &Use : L->Uses)
+            DeadStores.push_back(Use.getInst());
+        }
+    }
+  }
+
   bool run() {
     DenseMap<MemoryLocation, RedIdx> BelongsToClass;
     SmallVector<SmallPtrSet<BasicBlock *, 8>, 8> DefBlocks;
@@ -986,37 +715,13 @@ struct PDSE {
 
       for (BasicBlock *BB : LambdaBlocks) {
         DEBUG(dbgs() << "Inserting lambda at " << BB->getName() << "\n");
-        addLambda(*BB, Idx);
+        Blocks[&BB].Lambdas.push_back(LambdaOcc(BB));
+        Worklist[Idx].Lambdas.push_back(&Blocks[&BB].Lambdas.back());
       }
     }
 
     renamePass();
-
-    // Convert partial redundancies.
-    DenseMap<BasicBlock *, BasicBlock *> SplitBlocks;
-    for (RedClass &Class : Worklist) {
-      Class.willBeAnt();
-      for (LambdaOcc *L : Class.Lambdas)
-        if (L->NullDefs.empty()) {
-          // L is fully redundant and trivially DSEs its uses.
-          for (LambdaOcc::RealUse &Use : L->Uses)
-            if (Use.Occ->canDSE())
-              DeadStores.push_back(Use.getInst());
-        } else if (Instruction *I = L->createInsertionOcc()) {
-          // L is parially redundant and can be converted.
-          for (BasicBlock *Succ : L.NullDefs) {
-            if (SplitBlocks.count(Succ))
-              Succ = SplitBlocks[Succ];
-            else if (BasicBlock *Split = SplitCriticalEdge(L->Block, Succ))
-              Succ = SplitBlocks[Succ] = Split;
-            else
-              Succ = SplitBlocks[Succ] = Succ;
-            I->insertBefore(&*Succ->begin());
-          }
-          for (LambdaOcc::RealUse &Use : L->Uses)
-            DeadStores.push_back(Use.getInst());
-        }
-    }
+    convertPartialReds();
 
     // DSE.
     while (!DeadStores.empty()) {
@@ -1033,93 +738,6 @@ struct PDSE {
     return true;
   }
 };
-
-struct OccTracker {
-  SmallVector<RedGraph, 32> Inner;
-
-  OccTracker &push_back(MemoryLocation &&Loc, RealOcc &&R, AliasAnalysis &AA) {
-    // TODO: Match faster than quadratic.
-    auto OC = find_if(Inner, [&](const RedGraph &FRG) {
-      return AA.alias(Loc, FRG.Loc) == MustAlias && Loc.Size == FRG.Loc.Size;
-    });
-    DEBUG(dbgs() << "Collected real occ: " << *R.Inst << "\n");
-    if (OC == Inner.end())
-      Inner.push_back(RedGraph(std::move(Loc), std::move(R)));
-    else
-      OC->addRealOcc(std::move(R));
-    return *this;
-  }
-};
-
-bool nonEscapingOnUnwind(Instruction &I, const TargetLibraryInfo &TLI) {
-  return isa<AllocaInst>(&I) ||
-         (isAllocLikeFn(&I, &TLI) && !PointerMayBeCaptured(&I, false, true));
-}
-
-bool runPDSE(Function &F, AliasAnalysis &AA, PostDominatorTree &PDT,
-             const TargetLibraryInfo &TLI) {
-  OccTracker Worklist;
-  DenseMap<const BasicBlock *, std::list<Instruction *>> PerBlock;
-  EscapeTracker Tracker(F, TLI);
-
-  for (BasicBlock &BB : F)
-    for (Instruction &I : reverse(BB))
-      if (auto LocOcc = makeRealOcc(I, AA))
-        if (MRI & MRI_ModRef)
-          if (MRI & MRI_Mod)
-            if (auto LocOcc = makeRealOcc(I, AA)) {
-              DEBUG(dbgs() << "Got a loc: " << *LocOcc->first.Ptr << " + "
-                           << LocOcc->first.Size << "\n");
-              Worklist.push_back(std::move(LocOcc->first),
-                                 std::move(LocOcc->second), AA);
-            }
-
-  for (RedGraph &FRG : Worklist.Inner) {
-    // Now that NonEscapes and Returned are complete, compute escapability
-    // and
-    // return-ness.
-    FRG.setEscapesReturned(NonEscapes, Returns, F.getParent()->getDataLayout());
-
-    PostDomRenamer(PerBlock, AA, PDT).insertLambdas(FRG).renamePass(FRG);
-    FRG.propagateUpUnsafe().willBeAnt();
-
-    if (PrintFRG) {
-      FRGAnnot Annot(FRG);
-      dbgs() << "Factored redundancy graph for stores to " << *FRG.Loc.Ptr
-             << ":\n";
-      F.print(dbgs(), &Annot);
-      dbgs() << "\n";
-    }
-
-    // Convert partial redundancies to full ones, if we can.
-    for (auto &BBL : FRG.Lambdas) {
-      LambdaOcc &L = BBL.second;
-      if (Instruction *I = L.createInsertionOcc()) {
-        for (BasicBlock *Succ : L.NullOperands) {
-          BasicBlock *Split = SplitCriticalEdge(L.Block, Succ);
-          BasicBlock *BB = Split ? Split : Succ;
-          I->insertBefore(&*BB->begin());
-          // In the future, we should not need to update PerBlock.
-          PerBlock[BB].emplace_back(MemOrThrow{I, true});
-        }
-        L.NullOperands.clear();
-      }
-    }
-
-    for (auto &BlockOccs : FRG.BlockOccs)
-      for (RealOcc &R : BlockOccs.second)
-        if (R.ReprOcc && (R.ReprOcc->Type == OccTy::Real ||
-                          (R.ReprOcc->Type == OccTy::Lambda &&
-                           R.ReprOcc->asLambda()->NullOperands.empty()))) {
-          DEBUG(dbgs() << "DSEing " << *R.Inst << "\n");
-          // In the future, we should not need to update PerBlock.
-          if (PerBlock.count(R.Block))
-            PerBlock[R.Block].erase(InstToMOT.find(R.Inst)->second);
-          R.Inst->eraseFromParent();
-        }
-  }
-  return false;
-}
 
 class PDSELegacyPass : public FunctionPass {
 public:
