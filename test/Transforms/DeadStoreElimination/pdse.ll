@@ -277,3 +277,33 @@ bb5:
 ex:
   ret void
 }
+
+; PDSE-ing
+;
+; a, b, c --- lambda ---
+;               |
+;               +------- c, b, a
+;
+; into:
+;
+; --- lambda --- a, b, c
+;       |
+;       +------- c, b, a
+;
+; would require multiple rounds of willBeAnt
+define void @pre_blocked(i8* %a, i8* %b, i8* %c, i1 %br0) {
+bb0:
+    store i8 1, i8* %a
+    store i8 1, i8* %b
+    store i8 1, i8* %c
+    br i1 %br0, label %bb1, label %bb2
+bb1:
+    br label %bb3
+bb2:
+    store i8 11, i8* %c
+    store i8 11, i8* %b
+    store i8 11, i8* %a
+    br label %bb3
+bb3:
+    ret void
+}
