@@ -237,10 +237,6 @@ struct LambdaOcc final : public Occurrence {
   }
 };
 
-// A faux occurrence used to detect stores to non-escaping memory that are
-// redundant with respect to function exit.
-RealOcc DeadOnExit;
-
 // Factored redundancy graph representation for each maximal group of
 // must-aliasing stores.
 struct RedClass {
@@ -735,10 +731,14 @@ struct PDSE {
   DenseMap<const BasicBlock *, BlockInfo> Blocks;
   SmallVector<Instruction *, 16> DeadStores;
   SmallVector<RedGraph, 16> Worklist;
+  RealOcc DeadOnExit;
+  // ^ A faux occurrence used to detect stores to non-escaping memory that are
+  // redundant with respect to function exit.
 
   PDSE(Function &F, AliasAnalysis &AA, PostDominatorTree &PDT,
        const TargetLibraryInfo &TLI)
-      : F(F), PDT(PDT), TLI(TLI), NextID(1), AC(AA), Tracker(F, TLI) {}
+      : F(F), PDT(PDT), TLI(TLI), NextID(1), AC(AA), Tracker(F, TLI),
+        DeadOnExit(0, *F.getEntryBlock().getTerminator()) {}
 
   // If Inst has the potential to be a DSE candidate, return its write location
   // and a real occurrence wrapper.
