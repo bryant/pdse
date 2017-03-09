@@ -670,8 +670,9 @@ struct PDSE {
 
     // Lambdas directly exposed to reverse-exit are up-unsafe.
     if (&BB == &BB.getParent()->getEntryBlock())
-      for (LambdaOcc &L : Blocks[&BB].Lambdas)
-        updateUpSafety(L.Class, S);
+      for (RenameState::Incoming &Inc : S.States)
+        if (Inc.ReprOcc && Inc.ReprOcc->isLambda())
+          updateUpSafety(Inc.ReprOcc->Class, S);
 
     // Connect to predecessor lambdas.
     for (BasicBlock *Pred : predecessors(&BB))
