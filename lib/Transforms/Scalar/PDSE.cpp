@@ -664,12 +664,12 @@ struct PDSE {
     SmallVector<RenameState, 8> Stack;
     if (BasicBlock *Root = PDT.getRootNode()->getBlock())
       // Real and unique exit block.
-      Stack.push_back(renameBlock(
+      Stack.emplace_back(renameBlock(
           *Root, {PDT.getRootNode(), PDT.getRootNode()->begin(), Incs}));
     else
       // Multiple exits and/or infinite loops.
       for (DomTreeNode *N : *PDT.getRootNode())
-        Stack.push_back(renameBlock(*N->getBlock(), {N, N->begin(), Incs}));
+        Stack.emplace_back(renameBlock(*N->getBlock(), {N, N->begin(), Incs}));
 
     // Visit blocks in post-dom pre-order
     while (!Stack.empty()) {
@@ -677,12 +677,12 @@ struct PDSE {
         Stack.pop_back();
       else {
         DomTreeNode *Cur = *Stack.back().ChildIt++;
-        RenameState NewS = renameBlock(*Cur->getBlock(), Stack.back());
+        Stack.emplace_back(renameBlock(*Cur->getBlock(), Stack.back()));
         if (Cur->begin() != Cur->end()) {
-          NewS.Node = Cur;
-          NewS.ChildIt = Cur->begin();
-          Stack.push_back(std::move(NewS));
-        }
+          Stack.back().Node = Cur;
+          Stack.back().ChildIt = Cur->begin();
+        } else
+          Stack.pop_back();
       }
     }
   }
