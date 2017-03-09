@@ -562,8 +562,6 @@ struct PDSE {
           States[Idx] = {&DeadOnExit, nullptr};
     }
 
-    void kill(RedIdx Idx) { States[Idx] = {nullptr, nullptr}; }
-
     bool live(RedIdx Idx) const { return States[Idx].ReprOcc; }
 
     LambdaOcc *exposedLambda(RedIdx Idx) const {
@@ -573,12 +571,19 @@ struct PDSE {
     RealOcc *exposedRepr(RedIdx Idx) const {
       return live(Idx) ? States[Idx].ReprOcc->isReal() : nullptr;
     }
-
-    void updateUpSafety(RedIdx Idx) {
-      if (LambdaOcc *L = exposedLambda(Idx))
-        L->resetUpSafe();
-    }
   };
+
+  void kill(RedIdx Idx, RenameState &S) {
+    DEBUG(dbgs() << "Killing class " << Worklist[Idx] << "\n");
+    S.States[Idx] = {nullptr, nullptr};
+  }
+
+  void updateUpSafety(RedIdx Idx, RenameState &S) {
+    if (LambdaOcc *L = S.exposedLambda(Idx)) {
+      DEBUG(L->print(dbgs() << "Setting up-unsafe: ", Worklist));
+      L->resetUpSafe();
+    }
+  }
 
   bool canDSE(RealOcc &Occ, RenameState &S) {
     // Can DSE if post-dommed by an overwrite.
@@ -588,8 +593,7 @@ struct PDSE {
   }
 
   void handleRealOcc(RealOcc &Occ, RenameState &S) {
-    DEBUG(dbgs() << "Hit a new occ: " << *Occ.Inst << " ("
-                 << Occ.Inst->getParent()->getName() << ")\n");
+    DEBUG(Occ.print(dbgs() << "Hit a new occ: ", Worklist) << "\n");
     // Occ can't be DSE-ed, so set it as representative of its occ class.
     if (!S.live(Occ.Class))
       S.States[Occ.Class] = RenameState::Incoming{&Occ, nullptr};
@@ -603,28 +607,28 @@ struct PDSE {
       // Has no kill loc. Its store loc is only significant to incoming occ
       // classes with exposed lambdas.
       for (RedIdx Idx : Worklist[Occ.Class].Interferes)
-        S.updateUpSafety(Idx);
+        updateUpSafety(Idx, S);
     else
       // Has a load that could kill some incoming class, in addition to the same
       // store loc interaction above.
       for (RedIdx Idx = 0; Idx < Worklist.size(); Idx += 1)
         if (S.live(Idx) && (AC.alias(Idx, *Occ.KillLoc) != NoAlias ||
                             AC.alias(Idx, Occ.Class)))
-          S.kill(Idx);
+          kill(Idx, S);
   }
 
   void handleMayKill(Instruction &I, RenameState &S) {
     for (RedIdx Idx = 0; Idx < S.States.size(); Idx += 1)
       if (S.live(Idx) && Worklist[Idx].Escapes && I.mayThrow()) {
-        S.kill(Idx);
+        kill(Idx, S);
       } else if (S.live(Idx)) {
         ModRefInfo MRI = AC.getModRefInfo(Idx, I);
         if (MRI & MRI_Ref)
           // Aliasing load
-          S.kill(Idx);
+          kill(Idx, S);
         else if (MRI & MRI_Mod)
           // Aliasing store
-          S.updateUpSafety(Idx);
+          updateUpSafety(Idx, S);
       }
   }
 
@@ -660,7 +664,7 @@ struct PDSE {
     // Lambdas directly exposed to reverse-exit are up-unsafe.
     if (&BB == &BB.getParent()->getEntryBlock())
       for (LambdaOcc &L : Blocks[&BB].Lambdas)
-        S.updateUpSafety(L.Class);
+        updateUpSafety(L.Class, S);
 
     // Connect to predecessor lambdas.
     for (BasicBlock *Pred : predecessors(&BB))
