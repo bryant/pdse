@@ -308,3 +308,14 @@ bb2:
 bb3:
     ret void
 }
+
+define void @never_escapes() {
+bb0:
+    %a = alloca i8
+    br label %bb1
+bb1:
+    store i8 12, i8* %a
+    br label %bb2
+bb2:
+    ret void
+}
