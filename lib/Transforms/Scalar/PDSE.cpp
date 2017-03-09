@@ -713,16 +713,15 @@ struct PDSE {
       for (LambdaOcc *L : Class.Lambdas) {
 
         DEBUG(L->print(dbgs() << "Trying to PRE ", Worklist) << "\n\tUses:\n");
-        for (LambdaOcc::RealUse &Use : L->Uses) {
-          DEBUG(dbgs() << "\t\t" << Use.getInst() << " ("
-                       << Use.getInst().getParent()->getName() << ")\n");
-        }
+        for (LambdaOcc::RealUse &Use : L->Uses)
+          DEBUG(Use.Occ->print(dbgs() << "\t\t", Worklist) << "\n");
+
         DEBUG(dbgs() << "\tDefs:\n");
         for (LambdaOcc::Operand &Def : L->Defs) {
-          DEBUG(if (RealOcc *Occ = Def.Inner->isReal()) dbgs()
-                    << "\t\t" << *Occ->Inst << " ("
-                    << Occ->Inst->getParent()->getName() << ")\n";
-                else Def.getLambda()->print(dbgs() << "\t", Worklist) << "\n");
+          if (RealOcc *Occ = Def.Inner->isReal())
+            DEBUG(Occ->print(dbgs() << "\t\t", Worklist));
+          else
+            DEBUG(Def.getLambda()->print(dbgs() << "\t", Worklist) << "\n");
         }
 
         if (L->NullDefs.empty()) {
