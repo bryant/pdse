@@ -544,17 +544,13 @@ struct PDSE {
       // lambda-containing block) that post-doms us.
     };
 
-    DomTreeNode *Node;
-    DomTreeNode::iterator ChildIt;
     SmallVector<Incoming, 16> States;
 
-    static decltype(States)
-    makeStates(const SmallVectorImpl<RedClass> &Worklist, RealOcc &DeadOnExit) {
-      decltype(States) Ret(Worklist.size());
+    RenameState(SmallVectorImpl<RedClass> &Worklist, RealOcc &DeadOnExit)
+        : States(Worklist.size()) {
       for (RedIdx Idx = 0; Idx < Worklist.size(); Idx += 1)
         if (!Worklist[Idx].Escapes && !Worklist[Idx].Returned)
-          Ret[Idx] = RenameState::Incoming{&DeadOnExit, nullptr};
-      return Ret;
+          States[Idx] = {&DeadOnExit, nullptr};
     }
 
     void kill(RedIdx Idx) { States[Idx] = {nullptr, nullptr}; }
@@ -666,17 +662,23 @@ struct PDSE {
   }
 
   void renamePass() {
-    decltype(RenameState::States) Incs =
-        RenameState::makeStates(Worklist, DeadOnExit);
-    SmallVector<RenameState, 8> Stack;
+    struct Entry {
+      DomTreeNode *Node;
+      DomTreeNode::iterator ChildIt;
+      RenameState Inner;
+    };
+
+    SmallVector<Entry, 8> Stack;
+    RenameState RootState(Worklist, DeadOnExit);
     if (BasicBlock *Root = PDT.getRootNode()->getBlock())
       // Real and unique exit block.
-      Stack.emplace_back(renameBlock(
-          *Root, {PDT.getRootNode(), PDT.getRootNode()->begin(), Incs}));
+      Stack.push_back({PDT.getRootNode(), PDT.getRootNode()->begin(),
+                       renameBlock(*Root, RootState)});
     else
       // Multiple exits and/or infinite loops.
       for (DomTreeNode *N : *PDT.getRootNode())
-        Stack.emplace_back(renameBlock(*N->getBlock(), {N, N->begin(), Incs}));
+        Stack.push_back(
+            {N, N->begin(), renameBlock(*N->getBlock(), RootState)});
 
     // Visit blocks in post-dom pre-order
     while (!Stack.empty()) {
@@ -684,12 +686,11 @@ struct PDSE {
         Stack.pop_back();
       else {
         DomTreeNode *Cur = *Stack.back().ChildIt++;
-        Stack.emplace_back(renameBlock(*Cur->getBlock(), Stack.back()));
-        if (Cur->begin() != Cur->end()) {
-          Stack.back().Node = Cur;
-          Stack.back().ChildIt = Cur->begin();
-        } else
-          Stack.pop_back();
+        if (Cur->begin() != Cur->end())
+          Stack.push_back({Cur, Cur->begin(),
+                           renameBlock(*Cur->getBlock(), Stack.back().Inner)});
+        else
+          renameBlock(*Cur->getBlock(), Stack.back().Inner);
       }
     }
   }
