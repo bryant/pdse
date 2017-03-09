@@ -10,17 +10,19 @@ declare void @llvm.memset.p0i8.i64(i8*, i8, i64, i32, i1)
 define void @lo_and_chow(i8* %x, i1 %br0, i1 %br1) {
 ; CHECK-LABEL: @lo_and_chow(
 ; CHECK-NEXT:  bb0:
+; CHECK-NEXT:    [[V:%.*]] = load i8, i8* [[X:%.*]]
+; CHECK-NEXT:    [[V1:%.*]] = add nuw i8 [[V]], 1
 ; CHECK-NEXT:    br label [[BB1:%.*]]
 ; CHECK:       bb1:
-; CHECK-NEXT:    br i1 undef, label [[BB2:%.*]], label [[BB3:%.*]]
+; CHECK-NEXT:    br i1 [[BR0:%.*]], label [[BB2:%.*]], label [[BB3:%.*]]
 ; CHECK:       bb2:
-; CHECK-NEXT:    store i8 undef, i8* [[X:%.*]]
+; CHECK-NEXT:    store i8 [[V1]], i8* [[X]]
 ; CHECK-NEXT:    [[T:%.*]] = load i8, i8* [[X]]
 ; CHECK-NEXT:    br label [[BB3]]
 ; CHECK:       bb3:
-; CHECK-NEXT:    br i1 undef, label [[BB1]], label [[EXIT:%.*]]
+; CHECK-NEXT:    br i1 [[BR1:%.*]], label [[BB1]], label [[EXIT:%.*]]
 ; CHECK:       exit:
-; CHECK-NEXT:    store i8 undef, i8* [[X]]
+; CHECK-NEXT:    store i8 [[V1]], i8* [[X]]
 ; CHECK-NEXT:    ret void
 ;
 bb0:
@@ -89,7 +91,6 @@ exit:
 define i8* @j(i8* %a, i8* %e, i1 %c) {
 ; CHECK-LABEL: @j(
 ; CHECK-NEXT:  bb0:
-; CHECK-NEXT:    [[B:%.*]] = alloca i8
 ; CHECK-NEXT:    [[P:%.*]] = tail call i8* @malloc(i32 4)
 ; CHECK-NEXT:    br i1 [[C:%.*]], label [[BB1:%.*]], label [[BB2:%.*]]
 ; CHECK:       bb1:
@@ -170,7 +171,7 @@ bb4:
 define void @memcpy_example(i8* %a, i8* %b, i1 %br0) {
 ; CHECK-LABEL: @memcpy_example(
 ; CHECK-NEXT:  bb0:
-; CHECK-NEXT:    br i1 undef, label [[BB1:%.*]], label [[BB2:%.*]]
+; CHECK-NEXT:    br i1 [[BR0:%.*]], label [[BB1:%.*]], label [[BB2:%.*]]
 ; CHECK:       bb1:
 ; CHECK-NEXT:    call void @llvm.memcpy.p0i8.p0i8.i64(i8* [[A:%.*]], i8* [[B:%.*]], i64 64, i32 8, i1 false)
 ; CHECK-NEXT:    br label [[BB3:%.*]]
@@ -293,29 +294,53 @@ ex:
 ;
 ; would require multiple rounds of willBeAnt
 define void @pre_blocked(i8* %a, i8* %b, i8* %c, i1 %br0) {
+; CHECK-LABEL: @pre_blocked(
+; CHECK-NEXT:  bb0:
+; CHECK-NEXT:    store i8 1, i8* [[A:%.*]]
+; CHECK-NEXT:    store i8 1, i8* [[B:%.*]]
+; CHECK-NEXT:    br i1 [[BR0:%.*]], label [[BB1:%.*]], label [[BB2:%.*]]
+; CHECK:       bb1:
+; CHECK-NEXT:    store i8 1, i8* [[C:%.*]]
+; CHECK-NEXT:    br label [[BB3:%.*]]
+; CHECK:       bb2:
+; CHECK-NEXT:    store i8 11, i8* [[C]]
+; CHECK-NEXT:    store i8 11, i8* [[B]]
+; CHECK-NEXT:    store i8 11, i8* [[A]]
+; CHECK-NEXT:    br label [[BB3]]
+; CHECK:       bb3:
+; CHECK-NEXT:    ret void
+;
 bb0:
-    store i8 1, i8* %a
-    store i8 1, i8* %b
-    store i8 1, i8* %c
-    br i1 %br0, label %bb1, label %bb2
+  store i8 1, i8* %a
+  store i8 1, i8* %b
+  store i8 1, i8* %c
+  br i1 %br0, label %bb1, label %bb2
 bb1:
-    br label %bb3
+  br label %bb3
 bb2:
-    store i8 11, i8* %c
-    store i8 11, i8* %b
-    store i8 11, i8* %a
-    br label %bb3
+  store i8 11, i8* %c
+  store i8 11, i8* %b
+  store i8 11, i8* %a
+  br label %bb3
 bb3:
-    ret void
+  ret void
 }
 
 define void @never_escapes() {
+; CHECK-LABEL: @never_escapes(
+; CHECK-NEXT:  bb0:
+; CHECK-NEXT:    br label [[BB1:%.*]]
+; CHECK:       bb1:
+; CHECK-NEXT:    br label [[BB2:%.*]]
+; CHECK:       bb2:
+; CHECK-NEXT:    ret void
+;
 bb0:
-    %a = alloca i8
-    br label %bb1
+  %a = alloca i8
+  br label %bb1
 bb1:
-    store i8 12, i8* %a
-    br label %bb2
+  store i8 12, i8* %a
+  br label %bb2
 bb2:
-    ret void
+  ret void
 }
