@@ -229,8 +229,7 @@ struct LambdaOcc final : public Occurrence {
     return I;
   }
 
-  // See if this lambda's _|_ operands can be filled in. This requires that
-  // all
+  // See if this lambda's _|_ operands can be filled in. This requires that all
   // uses of this lambda are the same instruction type and DSE-able (e.g., not
   // volatile).
   Instruction *createInsertionOcc() {
@@ -283,8 +282,7 @@ private:
   using LambdaStack = SmallVector<LambdaOcc *, 16>;
 
   // All of the lambda occ refinement phases follow this depth-first structure
-  // to propagate some lambda flag from an initial set to the rest of the
-  // graph.
+  // to propagate some lambda flag from an initial set to the rest of the graph.
   // Consult figures 8 and 10 of Kennedy et al.
   void depthFirst(void (*push)(LambdaOcc &, LambdaStack &),
                   bool (*initial)(LambdaOcc &),
