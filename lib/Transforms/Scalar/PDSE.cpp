@@ -268,6 +268,8 @@ struct RedClass {
   // ^ The memory location that each RealOcc mods and must-alias.
   SmallVector<RedIdx, 8> Overwrites;
   // ^ Indices of redundancy classes that can DSE this class.
+  SmallVector<RedIdx, 8> Interferes;
+  // ^ Indices of redundancy classes that alias this class.
   bool Escapes;
   // ^ Upon function unwind, can Loc escape?
   bool Returned;
@@ -417,9 +419,9 @@ public:
 class AliasCache {
   const SmallVectorImpl<RedClass> &Worklist;
   DenseMap<std::pair<RedIdx, MemoryLocation>, AliasResult> Aliases;
-  // ^ used to check if a) one class aliases with another, b) a real occ's
-  // kill
-  // loc aliases a certain class.
+  // ^ Caches aliases between memcpy-like kill locs with each class.
+  SmallVector<SmallVector<AliasResult, 8>, 8> ClassAliases;
+  // ^ Caches aliasing info between occurrence classes.
   DenseMap<std::pair<RedIdx, const Instruction *>, ModRefInfo> MRI;
   AliasAnalysis &AA;
 
@@ -427,23 +429,22 @@ public:
   AliasCache(const SmallVectorImpl<RedClass> &Worklist, AliasAnalysis &AA)
       : Worklist(Worklist), AA(AA) {}
 
-  AliasResult alias(RedIdx A, RedIdx B) {
-    auto Key = std::make_pair(std::min(A, B), Worklist[std::max(A, B)].Loc);
-    assert(Aliases.count(Key) &&
-           "Aliasing between all classes should have been pre-computed.");
-    return Aliases.find(Key)->second;
-  }
-
   AliasResult alias(RedIdx A, const MemoryLocation &Loc) {
     auto Key = std::make_pair(A, Loc);
     return Aliases.count(Key) ? Aliases[Key]
                               : (Aliases[Key] = AA.alias(Worklist[A].Loc, Loc));
   }
 
-  AliasResult setAlias(RedIdx A, RedIdx B, AliasResult R) {
-    auto Key = std::make_pair(std::min(A, B), Worklist[std::max(A, B)].Loc);
-    return Aliases[Key] = R;
+  AliasResult alias(RedIdx A, RedIdx B) {
+    return ClassAliases[std::max(A, B)][std::min(A, B)];
   }
+
+  decltype(ClassAliases)::value_type &push() {
+    ClassAliases.emplace_back();
+    return ClassAliases.back();
+  }
+
+  void pop() { ClassAliases.pop_back(); }
 
   ModRefInfo getModRefInfo(RedIdx A, const Instruction &I) {
     auto Key = std::make_pair(A, &I);
@@ -500,36 +501,39 @@ struct PDSE {
 
   RedIdx assignClass(const MemoryLocation &Loc, RealOcc &Occ,
                      DenseMap<MemoryLocation, RedIdx> &BelongsToClass) {
-    SmallVector<AliasResult, 16> CachedAliases;
-
     if (BelongsToClass.count(Loc))
       return Occ.setClass(BelongsToClass[Loc]);
 
+    auto &CachedAliases = AC.push();
     for (RedIdx Idx = 0; Idx < Worklist.size(); Idx += 1) {
       RedClass &Class = Worklist[Idx];
       CachedAliases.emplace_back(AA.alias(Class.Loc, Loc));
-      if (CachedAliases.back() == MustAlias && Class.Loc.Size == Loc.Size)
+      if (CachedAliases.back() == MustAlias && Class.Loc.Size == Loc.Size) {
+        AC.pop();
         return Occ.setClass(BelongsToClass[Loc] = Idx);
+      }
     }
 
     // Occ doesn't belong to any existing class, so start a new class.
     Worklist.emplace_back(Loc, Tracker.escapesOnUnwind(Loc),
                           Tracker.returned(Loc));
-    BelongsToClass[Worklist.back().Loc] = Worklist.size() - 1;
+    RedIdx NewIdx = BelongsToClass[Worklist.back().Loc] = Worklist.size() - 1;
 
-    // Cache aliasing info between new and existing classes.
+    // Copy must-aliases and may-alias into Overwrites and Interferes.
     for (RedIdx Idx = 0; Idx < CachedAliases.size(); Idx += 1) {
       if (CachedAliases[Idx] == MustAlias) {
         // Found a class that could either overwrite or be overwritten by the
         // new class.
-        if (Worklist.back().Loc.Size >= Worklist[Idx].Loc.Size)
-          Worklist[Idx].Overwrites.push_back(Worklist.size() - 1);
-        else if (Worklist.back().Loc.Size <= Worklist[Idx].Loc.Size)
-          Worklist.back().Overwrites.push_back(Idx);
+        if (Worklist[NewIdx].Loc.Size >= Worklist[Idx].Loc.Size)
+          Worklist[Idx].Overwrites.push_back(NewIdx);
+        else if (Worklist[NewIdx].Loc.Size <= Worklist[Idx].Loc.Size)
+          Worklist[NewIdx].Overwrites.push_back(Idx);
+      } else if (CachedAliases[Idx] != NoAlias) {
+        Worklist[Idx].Interferes.push_back(NewIdx);
+        Worklist[NewIdx].Interferes.push_back(Idx);
       }
-      AC.setAlias(Idx, Worklist.size() - 1, CachedAliases[Idx]);
     }
-    return Occ.setClass(Worklist.size() - 1);
+    return Occ.setClass(NewIdx);
   }
 
   struct RenameState {
@@ -581,7 +585,7 @@ struct PDSE {
   void handleRealOcc(RealOcc &Occ, RenameState &S) {
     DEBUG(dbgs() << "Hit a new occ: " << *Occ.Inst << " ("
                  << Occ.Inst->getParent()->getName() << ")\n");
-    // Set Occ as the repr occ of its class.
+    // Occ can't be DSE-ed, so set it as representative of its occ class.
     if (!S.live(Occ.Class))
       S.States[Occ.Class] = RenameState::Incoming{&Occ, nullptr};
     else if (LambdaOcc *L = S.exposedLambda(Occ.Class)) {
@@ -589,16 +593,19 @@ struct PDSE {
       S.States[Occ.Class] = {&Occ, nullptr};
     }
 
-    // Occ could stomp on an aliasing class's lambda, or outright kill another
-    // class if it has a KillLoc (e.g., if it's a memcpy).
-    for (RedIdx Idx = 0; Idx < S.States.size(); Idx += 1)
-      if (Idx != Occ.Class && S.live(Idx)) {
-        if (Occ.KillLoc && AC.alias(Idx, *Occ.KillLoc) != NoAlias)
-          // TODO: link up use-def edge
+    // Find out how Occ interacts with incoming occ classes.
+    if (!Occ.KillLoc)
+      // Has no kill loc. Its store loc is only significant to incoming occ
+      // classes with exposed lambdas.
+      for (RedIdx Idx : Worklist[Occ.Class].Interferes)
+        S.updateUpSafety(Idx);
+    else
+      // Has a load that could kill some incoming class, in addition to the same
+      // store loc interaction above.
+      for (RedIdx Idx = 0; Idx < Worklist.size(); Idx += 1)
+        if (S.live(Idx) && (AC.alias(Idx, *Occ.KillLoc) != NoAlias ||
+                            AC.alias(Idx, Occ.Class)))
           S.kill(Idx);
-        else if (AC.alias(Idx, Occ.Class) != NoAlias)
-          S.updateUpSafety(Idx);
-      }
   }
 
   void handleMayKill(Instruction &I, RenameState &S) {
