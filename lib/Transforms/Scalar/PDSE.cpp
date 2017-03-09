@@ -115,6 +115,8 @@ struct Occurrence {
   RedIdx setClass(RedIdx Class_) { return Class = Class_; }
 };
 
+struct RedClass;
+
 struct RealOcc final : public Occurrence {
   Instruction *Inst;
   Occurrence *Def;
@@ -135,9 +137,9 @@ struct RealOcc final : public Occurrence {
       llvm_unreachable("Unknown real occurrence type.");
     }
   }
-};
 
-struct RedClass;
+  raw_ostream &print(raw_ostream &, const SmallVectorImpl<RedClass> &) const;
+};
 
 struct LambdaOcc final : public Occurrence {
   struct Operand {
@@ -360,15 +362,24 @@ public:
   RedClass &willBeAnt() {
     return propagateUpUnsafe().computeCanBeAnt().computeEarlier();
   }
+
+  friend raw_ostream &operator<<(raw_ostream &O, const RedClass &Class) {
+    return O << *Class.Loc.Ptr << " x " << Class.Loc.Size;
+  }
 };
+
+raw_ostream &RealOcc::print(raw_ostream &O,
+                            const SmallVectorImpl<RedClass> &Worklist) const {
+  return ID ? (O << "Real @ " << Inst->getParent()->getName() << " ("
+                 << Worklist[Class] << ") " << *Inst)
+            : (O << "DeadOnExit");
+}
 
 raw_ostream &LambdaOcc::print(raw_ostream &O,
                               const SmallVectorImpl<RedClass> &Worklist) const {
-  const MemoryLocation &Loc = Worklist[Class].Loc;
-  O << "Lambda @ " << Block->getName() << " (" << *Loc.Ptr << " x " << Loc.Size
-    << ") [" << (UpSafe ? "U " : "!U ") << (CanBeAnt ? "C " : "!C ")
-    << (Earlier ? "E " : "!E ") << (willBeAnt() ? "W" : "!W") << "]";
-  return O;
+  return O << "Lambda @ " << Block->getName() << " (" << Worklist[Class]
+           << ") [" << (UpSafe ? "U " : "!U ") << (CanBeAnt ? "C " : "!C ")
+           << (Earlier ? "E " : "!E ") << (willBeAnt() ? "W" : "!W") << "]";
 }
 
 class EscapeTracker {
