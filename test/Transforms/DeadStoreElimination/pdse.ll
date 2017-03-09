@@ -280,7 +280,7 @@ ex:
   ret void
 }
 
-; PDSE-ing
+; FIXME: PDSE-ing
 ;
 ; a, b, c --- lambda ---
 ;               |
@@ -321,6 +321,48 @@ bb2:
   store i8 11, i8* %c
   store i8 11, i8* %b
   store i8 11, i8* %a
+  br label %bb3
+bb3:
+  ret void
+}
+
+; FIXME: Should transform this:
+;
+; s, s' --- lambda ---
+;             |
+;             +------- s
+;
+; into:
+;
+; --- lambda --- s, s'
+;       |
+;       +------- s'
+define void @pre_blocked_again(i64* %a, i1 %br0) {
+; CHECK-LABEL: @pre_blocked_again(
+; CHECK-NEXT:  bb0:
+; CHECK-NEXT:    store i64 1, i64* [[A:%.*]]
+; CHECK-NEXT:    [[X:%.*]] = bitcast i64* [[A]] to i8*
+; CHECK-NEXT:    [[B:%.*]] = getelementptr i8, i8* [[X]], i64 1
+; CHECK-NEXT:    store i8 2, i8* [[B]]
+; CHECK-NEXT:    br i1 [[BR0:%.*]], label [[BB1:%.*]], label [[BB2:%.*]]
+; CHECK:       bb1:
+; CHECK-NEXT:    store i64 1, i64* [[A]]
+; CHECK-NEXT:    br label [[BB3:%.*]]
+; CHECK:       bb2:
+; CHECK-NEXT:    br label [[BB3]]
+; CHECK:       bb3:
+; CHECK-NEXT:    ret void
+;
+bb0:
+  store i64 1, i64* %a
+  %x = bitcast i64* %a to i8*
+  %b = getelementptr i8, i8* %x, i64 1
+  store i8 2, i8* %b
+  br i1 %br0, label %bb1, label %bb2
+bb1:
+  store i64 1, i64* %a
+  br label %bb3
+bb2:
   br label %bb3
 bb3:
   ret void
