@@ -311,6 +311,7 @@ private:
   // up-unsafety to the rest of the FRG.
   RedClass &propagateUpUnsafe() {
     auto push = [](LambdaOcc &L, LambdaStack &Stack) {
+      L.resetUpSafe();
       for (LambdaOcc::Operand &Op : L.Defs)
         if (LambdaOcc *L = Op.Inner->isLambda())
           Stack.push_back(L);
