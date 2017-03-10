@@ -176,10 +176,9 @@ struct LambdaOcc final : public Occurrence {
   bool CanBeAnt;
   bool Earlier;
 
-  LambdaOcc(BasicBlock &Block, RedIdx Class)
-      : Occurrence{-1u, Class, OccTy::Lambda}, Block(&Block), Defs(),
-        NullDefs(), Uses(), LambdaUses(), UpSafe(true), CanBeAnt(true),
-        Earlier(true) {}
+  LambdaOcc(unsigned ID, BasicBlock &Block, RedIdx Class)
+      : Occurrence{ID, Class, OccTy::Lambda}, Block(&Block), Defs(), NullDefs(),
+        Uses(), LambdaUses(), UpSafe(true), CanBeAnt(true), Earlier(true) {}
 
   void addUse(RealOcc &Occ, BasicBlock &Pred) { Uses.push_back({&Occ, &Pred}); }
 
@@ -807,7 +806,7 @@ struct PDSE {
       RIDF.calculate(LambdaBlocks);
 
       for (BasicBlock *BB : LambdaBlocks) {
-        Blocks[BB].Lambdas.emplace_back(*BB, Idx);
+        Blocks[BB].Lambdas.emplace_back(NextID++, *BB, Idx);
         Worklist[Idx].Lambdas.push_back(&Blocks[BB].Lambdas.back());
         DEBUG(Blocks[BB].Lambdas.back().print(dbgs() << "Inserted ", Worklist)
               << "\n");
