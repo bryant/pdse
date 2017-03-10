@@ -150,15 +150,24 @@ struct LambdaOcc final : public Occurrence {
     LambdaOcc *getLambda() const {
       return Inner->isReal() ? Inner->isReal()->isLambda() : Inner->isLambda();
     }
+
+    Operand(Occurrence &Inner) : Inner(&Inner) {}
   };
 
   struct RealUse {
     RealOcc *Occ;
     BasicBlock *Pred;
 
-    Instruction &getInst() { return *Occ->Inst; }
+    Instruction &getInst() const { return *Occ->Inst; }
+  };
 
-    const Instruction &getInst() const { return *Occ->Inst; }
+  struct LambdaUse {
+    LambdaOcc *L;
+    size_t OpIdx;
+
+    Operand &getOp() const { return L->Defs[OpIdx]; }
+
+    LambdaUse(LambdaOcc &L, size_t OpIdx) : L(&L), OpIdx(OpIdx) {}
   };
 
   BasicBlock *Block;
@@ -168,7 +177,7 @@ struct LambdaOcc final : public Occurrence {
   // ^ All uses that alias or kill this lambda's occurrence class. A necessary
   // condition for this lambda to be up-safe is that all its uses are the same
   // class.
-  SmallVector<std::pair<LambdaOcc *, Operand *>, 4> LambdaUses;
+  SmallVector<LambdaUse, 4> LambdaUses;
   // ^ Needed by the lambda refinement phases `CanBeAnt` and `Earlier`.
 
   // Consult the Kennedy et al. paper for these.
@@ -182,13 +191,14 @@ struct LambdaOcc final : public Occurrence {
 
   void addUse(RealOcc &Occ, BasicBlock &Pred) { Uses.push_back({&Occ, &Pred}); }
 
-  void addUse(LambdaOcc &L, Operand &Op) { LambdaUses.push_back({&L, &Op}); }
+  void addUse(LambdaOcc &L, size_t OpIdx) { LambdaUses.emplace_back(L, OpIdx); }
 
   LambdaOcc &addOperand(BasicBlock &Succ, Occurrence *ReprOcc) {
     if (ReprOcc) {
-      Defs.push_back(Operand{ReprOcc});
-      if (LambdaOcc *L = Defs.back().getLambda())
-        L->addUse(*this, Defs.back());
+      Defs.emplace_back(*ReprOcc);
+      if (LambdaOcc *L = Defs.back().getLambda()) {
+        L->addUse(*this, Defs.size() - 1);
+      }
     } else
       NullDefs.push_back(&Succ);
     return *this;
@@ -328,9 +338,10 @@ private:
   RedClass &computeCanBeAnt() {
     auto push = [](LambdaOcc &L, LambdaStack &Stack) {
       L.resetCanBeAnt();
-      for (auto &LO : L.LambdaUses)
-        if (!LO.second->hasRealUse() && !LO.first->UpSafe && LO.first->CanBeAnt)
-          Stack.push_back(LO.first);
+      for (LambdaOcc::LambdaUse &Use : L.LambdaUses) {
+        if (!Use.getOp().hasRealUse() && !Use.L->UpSafe && Use.L->CanBeAnt)
+          Stack.push_back(Use.L);
+      }
     };
     auto initialCond = [](LambdaOcc &L) {
       return !L.UpSafe && L.CanBeAnt && !L.NullDefs.empty();
@@ -344,9 +355,9 @@ private:
   RedClass &computeEarlier() {
     auto push = [](LambdaOcc &L, LambdaStack &Stack) {
       L.resetEarlier();
-      for (auto &LO : L.LambdaUses)
-        if (LO.first->Earlier)
-          Stack.push_back(LO.first);
+      for (LambdaOcc::LambdaUse &Use : L.LambdaUses)
+        if (Use.L->Earlier)
+          Stack.push_back(Use.L);
     };
     auto initialCond = [](LambdaOcc &L) {
       return L.Earlier && any_of(L.Defs, [](const LambdaOcc::Operand &Op) {
