@@ -592,7 +592,7 @@ struct PDSE {
 
   void updateUpSafety(RedIdx Idx, RenameState &S) {
     if (LambdaOcc *L = S.exposedLambda(Idx)) {
-      DEBUG(L->print(dbgs() << "Setting up-unsafe: ", Worklist));
+      DEBUG(L->print(dbgs() << "Setting up-unsafe: ", Worklist) << "\n");
       L->resetUpSafe();
     }
   }
@@ -743,9 +743,9 @@ struct PDSE {
         DEBUG(dbgs() << "\tDefs:\n");
         for (LambdaOcc::Operand &Def : L->Defs) {
           if (RealOcc *Occ = Def.hasRealUse())
-            DEBUG(Occ->print(dbgs() << "\t\t", Worklist));
+            DEBUG(Occ->print(dbgs() << "\t\t", Worklist) << "\n");
           else
-            DEBUG(Def.getLambda()->print(dbgs() << "\t", Worklist) << "\n");
+            DEBUG(Def.getLambda()->print(dbgs() << "\t\t", Worklist) << "\n");
         }
 
         if (L->NullDefs.empty()) {
