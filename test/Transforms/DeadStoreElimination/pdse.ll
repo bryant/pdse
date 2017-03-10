@@ -386,3 +386,25 @@ bb1:
 bb2:
   ret void
 }
+
+define void @propagate_up_unsafety(i8* %a, i1 %br0, i1 %br1, i1 %br2) {
+entry:
+    br i1 %br2, label %bb5, label %bb6
+bb5:
+    br label %bb0
+bb6:
+    store i8 12, i8* %a
+    br label %bb0
+bb0:
+    br i1 %br0, label %bb1, label %bb2
+bb1:
+    br i1 %br1, label %bb3, label %bb4
+bb2:
+    store i8 1, i8* %a
+    ret void
+bb3:
+    br label %bb0
+bb4:
+    store i8 3, i8* %a
+    ret void
+}
