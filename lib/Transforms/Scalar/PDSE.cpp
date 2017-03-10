@@ -147,7 +147,7 @@ struct LambdaOcc final : public Occurrence {
 
     RealOcc *hasRealUse() const { return Inner->isReal(); }
 
-    LambdaOcc *getLambda() {
+    LambdaOcc *getLambda() const {
       return Inner->isReal() ? Inner->isReal()->isLambda() : Inner->isLambda();
     }
   };
