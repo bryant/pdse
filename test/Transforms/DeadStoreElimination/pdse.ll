@@ -408,3 +408,21 @@ bb4:
     store i8 3, i8* %a
     ret void
 }
+
+define void @multiple_insertions(i8* %a, i32 %br0) {
+bb0:
+    store i8 12, i8* %a
+    switch i32 %br0, label %bb1 [
+        i32 1, label %bb2
+        i32 2, label %bb3
+    ]
+bb1:
+    store i8 12, i8* %a
+    br label %bb4
+bb2:
+    br label %bb4
+bb3:
+    br label %bb4
+bb4:
+    ret void
+}
