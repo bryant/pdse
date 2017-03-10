@@ -145,7 +145,7 @@ struct LambdaOcc final : public Occurrence {
   struct Operand {
     Occurrence *Inner;
 
-    bool hasRealUse() const { return Inner->isReal(); }
+    RealOcc *hasRealUse() const { return Inner->isReal(); }
 
     LambdaOcc *getLambda() {
       return Inner->isReal() ? Inner->isReal()->isLambda() : Inner->isLambda();
@@ -730,7 +730,7 @@ struct PDSE {
 
         DEBUG(dbgs() << "\tDefs:\n");
         for (LambdaOcc::Operand &Def : L->Defs) {
-          if (RealOcc *Occ = Def.Inner->isReal())
+          if (RealOcc *Occ = Def.hasRealUse())
             DEBUG(Occ->print(dbgs() << "\t\t", Worklist));
           else
             DEBUG(Def.getLambda()->print(dbgs() << "\t", Worklist) << "\n");
