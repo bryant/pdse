@@ -312,8 +312,9 @@ private:
     auto push = [](LambdaOcc &L, LambdaStack &Stack) {
       L.resetUpSafe();
       for (LambdaOcc::Operand &Op : L.Defs)
-        if (LambdaOcc *L = Op.Inner->isLambda())
-          Stack.push_back(L);
+        if (!Op.hasRealUse())
+          if (LambdaOcc *L = Op.getLambda())
+            Stack.push_back(L);
     };
     auto initialCond = [](LambdaOcc &L) { return !L.UpSafe; };
     // If the top entry of the lambda stack is up-unsafe, then it and its
