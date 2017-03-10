@@ -758,16 +758,23 @@ struct PDSE {
           // L is partially redundant and can be PRE-ed.
           DEBUG(L->print(dbgs(), Worklist) << " can be PRE-ed with:\n\t" << *I
                                            << "\n");
-          for (BasicBlock *Succ : L->NullDefs) {
+          auto pre = [&](BasicBlock *Succ, Instruction *I) {
+            assert(!I->getParent() && "Can only insert new instructions.");
             if (SplitBlocks.count(Succ))
               Succ = SplitBlocks[Succ];
             else if (BasicBlock *Split = SplitCriticalEdge(L->Block, Succ))
               Succ = SplitBlocks[Succ] = Split;
             else
-              Succ = SplitBlocks[Succ] = Succ;
+              SplitBlocks[Succ] = Succ;
             I->insertBefore(&*Succ->begin());
-            DEBUG(dbgs() << "Inserting into " << Succ->getName() << "\n");
-          }
+            DEBUG(dbgs() << "Inserted into " << Succ->getName() << "\n");
+          };
+
+          pre(L->NullDefs[0], I);
+          for (BasicBlock *Succ : make_range(std::next(std::begin(L->NullDefs)),
+                                             std::end(L->NullDefs)))
+            pre(Succ, I->clone());
+
           for (LambdaOcc::RealUse &Use : L->Uses) {
             ++NumPartialReds;
             dse(Use.getInst());
