@@ -668,7 +668,7 @@ struct PDSE {
         // Not a real occ, but still a meminst that could kill or alias.
         handleMayKill(*I.get<Instruction *>(), S);
 
-    // Lambdas directly exposed to reverse-exit are up-unsafe.
+    // Lambdas directly exposed to reverse CFG exit are up-unsafe.
     if (&BB == &BB.getParent()->getEntryBlock())
       for (RenameState::Incoming &Inc : S.States)
         if (Inc.ReprOcc && Inc.ReprOcc->isLambda())
