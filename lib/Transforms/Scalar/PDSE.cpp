@@ -608,35 +608,29 @@ struct PDSE {
       S.States[Occ.Class] = {&Occ, nullptr};
     }
 
-    // Find out how Occ interacts with incoming occ classes.
-    if (!Occ.KillLoc) {
-      // Has no kill loc. Its store loc is only significant to incoming occ
-      // classes with exposed lambdas.
-      for (RedIdx Idx : Worklist[Occ.Class].Interferes)
-        updateUpSafety(Idx, S);
-      for (RedIdx Idx : Worklist[Occ.Class].Overwrites)
-        if (!S.live(Idx))
-          // Idx is _|_ but is completely overwritten by Occ.Class. So for all
-          // DSE purposes, this occ is Idx's new repr occ.
-          S.States[Idx] = {&Occ, nullptr};
-        else
-          // Otherwise, if Idx is live and a lambda, this occ stomps its
-          // up-safety.
-          updateUpSafety(Idx, S);
-    } else
+    // Find out how Occ's KillLoc, if any,  interacts with incoming occ classes.
+    if (Occ.KillLoc)
       // Has a load that could kill some incoming class, in addition to the same
       // store loc interaction above.
       for (RedIdx Idx = 0; Idx < Worklist.size(); Idx += 1)
-        if (S.live(Idx) && Idx != Occ.Class) {
-          if (AC.alias(Idx, *Occ.KillLoc) != NoAlias) {
-            DEBUG(dbgs() << "KillLoc aliases: " << AC.alias(Idx, *Occ.KillLoc)
-                         << "\n");
-            kill(Idx, S);
-          } else if (AC.alias(Idx, Occ.Class)) {
-            DEBUG(dbgs() << "Aliases: " << AC.alias(Idx, Occ.Class) << "\n");
-            updateUpSafety(Idx, S);
-          }
+        if (S.live(Idx) && Idx != Occ.Class &&
+            AC.alias(Idx, *Occ.KillLoc) != NoAlias) {
+          DEBUG(dbgs() << "KillLoc aliases: " << AC.alias(Idx, *Occ.KillLoc)
+                       << "\n");
+          kill(Idx, S);
         }
+
+    // Examine interactions with its store loc.
+    for (RedIdx Idx : Worklist[Occ.Class].Interferes)
+      updateUpSafety(Idx, S);
+    for (RedIdx Idx : Worklist[Occ.Class].Overwrites)
+      if (!S.live(Idx))
+        // Idx is _|_ but is completely overwritten by Occ.Class. So for all
+        // DSE purposes, this occ is Idx's new repr occ.
+        S.States[Idx] = {&Occ, nullptr};
+      else
+        // Otherwise, if Idx is a lambda, this occ stomps its up-safety.
+        updateUpSafety(Idx, S);
   }
 
   void handleMayKill(Instruction &I, RenameState &S) {
