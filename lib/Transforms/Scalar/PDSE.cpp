@@ -625,8 +625,9 @@ struct PDSE {
       updateUpSafety(Idx, S);
     for (RedIdx Idx : Worklist[Occ.Class].Overwrites)
       if (!S.live(Idx))
-        // Idx is _|_ but is completely overwritten by Occ.Class. So for all
-        // DSE purposes, this occ is Idx's new repr occ.
+        // Any of Idx's occs post-dommed by Occ can be DSE-ed (barring some
+        // intervening load that aliases Idx). Since Idx is _|_, this occ is
+        // Idx's new repr.
         S.States[Idx] = {&Occ, nullptr};
       else
         // Otherwise, if Idx is a lambda, this occ stomps its up-safety.
