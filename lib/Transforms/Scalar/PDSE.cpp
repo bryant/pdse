@@ -157,6 +157,7 @@ struct LambdaOcc final : public Occurrence {
   struct RealUse {
     RealOcc *Occ;
     BasicBlock *Pred;
+    BasicBlock *Pred;
 
     Instruction &getInst() const { return *Occ->Inst; }
   };
@@ -277,7 +278,7 @@ struct RedClass {
   MemoryLocation Loc;
   // ^ The memory location that each RealOcc mods and must-alias.
   SmallVector<RedIdx, 8> Overwrites;
-  // ^ Indices of redundancy classes that can DSE this class.
+  // ^ Indices of redundancy classes that this class can DSE.
   SmallVector<RedIdx, 8> Interferes;
   // ^ Indices of redundancy classes that alias this class.
   bool Escapes;
@@ -546,9 +547,9 @@ struct PDSE {
         // Found a class that could either overwrite or be overwritten by the
         // new class.
         if (Worklist[NewIdx].Loc.Size >= Worklist[Idx].Loc.Size)
-          Worklist[Idx].Overwrites.push_back(NewIdx);
-        else if (Worklist[NewIdx].Loc.Size <= Worklist[Idx].Loc.Size)
           Worklist[NewIdx].Overwrites.push_back(Idx);
+        else if (Worklist[NewIdx].Loc.Size <= Worklist[Idx].Loc.Size)
+          Worklist[Idx].Overwrites.push_back(NewIdx);
       } else if (CachedAliases[Idx] != NoAlias) {
         Worklist[Idx].Interferes.push_back(NewIdx);
         Worklist[NewIdx].Interferes.push_back(Idx);
@@ -599,9 +600,7 @@ struct PDSE {
 
   bool canDSE(RealOcc &Occ, RenameState &S) {
     // Can DSE if post-dommed by an overwrite.
-    return Occ.canDSE() && (S.exposedRepr(Occ.Class) ||
-                            any_of(Worklist[Occ.Class].Overwrites,
-                                   [&](RedIdx R) { return S.exposedRepr(R); }));
+    return Occ.canDSE() && S.exposedRepr(Occ.Class);
   }
 
   void handleRealOcc(RealOcc &Occ, RenameState &S) {
@@ -615,12 +614,21 @@ struct PDSE {
     }
 
     // Find out how Occ interacts with incoming occ classes.
-    if (!Occ.KillLoc)
+    if (!Occ.KillLoc) {
       // Has no kill loc. Its store loc is only significant to incoming occ
       // classes with exposed lambdas.
       for (RedIdx Idx : Worklist[Occ.Class].Interferes)
         updateUpSafety(Idx, S);
-    else
+      for (RedIdx Idx : Worklist[Occ.Class].Overwrites)
+        if (!S.live(Idx))
+          // Idx is _|_ but is completely overwritten by Occ.Class. So for all
+          // DSE purposes, this occ is Idx's new repr occ.
+          S.States[Idx] = {&Occ, nullptr};
+        else
+          // Otherwise, if Idx is live and a lambda, this occ stomps its
+          // up-safety.
+          updateUpSafety(Idx, S);
+    } else
       // Has a load that could kill some incoming class, in addition to the same
       // store loc interaction above.
       for (RedIdx Idx = 0; Idx < Worklist.size(); Idx += 1)
