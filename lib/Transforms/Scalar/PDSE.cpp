@@ -598,11 +598,6 @@ struct PDSE {
     }
   }
 
-  bool canDSE(RealOcc &Occ, RenameState &S) {
-    // Can DSE if post-dommed by an overwrite.
-    return Occ.canDSE() && S.exposedRepr(Occ.Class);
-  }
-
   void handleRealOcc(RealOcc &Occ, RenameState &S) {
     DEBUG(Occ.print(dbgs() << "Hit a new occ: ", Worklist) << "\n");
     // Occ can't be DSE-ed, so set it as representative of its occ class.
@@ -680,7 +675,7 @@ struct PDSE {
     // Simultaneously rename and DSE in post-order.
     for (InstOrReal &I : reverse(Blocks[&BB].Insts))
       if (auto *Occ = I.dyn_cast<RealOcc *>()) {
-        if (canDSE(*Occ, S))
+        if (Occ.canDSE() && S.exposedRepr(Occ.Class))
           dse(*Occ->Inst);
         else
           handleRealOcc(*Occ, S);
