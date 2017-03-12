@@ -427,13 +427,20 @@ bb4:
     ret void
 }
 
-; Check that renaming handles overwrites correctly.
-define void @small_store_can_dse(i8*) {
+; Check that renaming rules handle overwrites correctly.
+define void @small_store_can_dse(i8*, i8* noalias) {
+bb0:
     store i8 1, i8* %0
     %2 = getelementptr inbounds i8, i8* %0, i64 2
     %3 = load i8, i8* %2
     %4 = bitcast i8* %0 to i64*
     store i64 3, i64* %4
+    br label %bb1
+bb1:
+    %5 = load i8, i8* %0
+    store i8 1, i8* %0
+    %6 = load i8, i8* %2
+    call void @llvm.memcpy.p0i8.p0i8.i64(i8* %0, i8* %1, i64 8, i32 1, i1 false)
     ret void
 }
 
