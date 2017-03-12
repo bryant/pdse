@@ -426,3 +426,30 @@ bb3:
 bb4:
     ret void
 }
+
+; Check that renaming handles overwrites correctly.
+define void @small_store_can_dse(i8*) {
+  store i8 1, i8* %0
+  %2 = getelementptr inbounds i8, i8* %0, i64 2
+  %3 = load i8, i8* %2
+  %4 = bitcast i8* %0 to i64*
+  store i64 3, i64* %4
+  ret void
+}
+
+; Nothing should be inserted. The i64 store should be used by the i8 lambda in
+; bb1.
+define void @no_extra_insert(i8* %a, i1 %br0) {
+bb0:
+    store i8 1, i8* %a
+    br i1 %br0, label %bb1, label %bb2
+bb1:
+    %b = bitcast i8* %a to i64*
+    store i64 2, i64* %b
+    br label %exit
+bb2:
+    store i8 3, i8* %a
+    br label %exit
+exit:
+    ret void
+}
