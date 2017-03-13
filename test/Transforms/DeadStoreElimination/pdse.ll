@@ -42,6 +42,24 @@ exit:
   ret void
 }
 
+define void @lo_and_chow_maythrow(i8* %x, i1 %br0, i1 %br1) {
+bb0:
+  %v = load i8, i8* %x
+  %v1 = add nuw i8 %v, 1
+  store i8 %v1, i8* %x
+  br label %bb1
+bb1:
+  br i1 %br0, label %bb2, label %bb3
+bb2:
+  call void @may_throw()
+  br label %bb3
+bb3:
+  store i8 %v1, i8* %x
+  br i1 %br1, label %bb1, label %exit
+exit:
+  ret void
+}
+
 ; demos the self-loop problem in post-dom tree.
 ; define void @f(i8* %x) {
 ; a:
