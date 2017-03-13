@@ -808,7 +808,8 @@ struct PDSE {
         for (InstOrReal &I : Blocks[&BB].Insts) {
           auto *Occ = I.dyn_cast<RealOcc *>();
           auto *II = I.dyn_cast<Instruction *>();
-          if ((Occ && Occ->KillLoc &&
+          if ((II && II->mayThrow() && Worklist[Idx].Escapes) ||
+              (Occ && Occ->KillLoc &&
                AC.alias(Idx, *Occ->KillLoc) != NoAlias) ||
               (II && AC.getModRefInfo(Idx, *II) & MRI_Ref)) {
             DefBlocks[Idx].insert(&BB);
