@@ -138,7 +138,7 @@ struct RealOcc final : public Occurrence {
     }
   }
 
-  raw_ostream &print(raw_ostream &, const SmallVectorImpl<RedClass> &) const;
+  raw_ostream &print(raw_ostream &, ArrayRef<RedClass>) const;
 };
 
 struct LambdaOcc final : public Occurrence {
@@ -269,7 +269,7 @@ struct LambdaOcc final : public Occurrence {
     return nullptr;
   }
 
-  raw_ostream &print(raw_ostream &, const SmallVectorImpl<RedClass> &) const;
+  raw_ostream &print(raw_ostream &, ArrayRef<RedClass>) const;
 };
 
 // Factored redundancy graph representation for each maximal group of
@@ -381,15 +381,14 @@ public:
   }
 };
 
-raw_ostream &RealOcc::print(raw_ostream &O,
-                            const SmallVectorImpl<RedClass> &Worklist) const {
+raw_ostream &RealOcc::print(raw_ostream &O, ArrayRef<RedClass> Worklist) const {
   return ID ? (O << "Real @ " << Inst->getParent()->getName() << " ("
                  << Worklist[Class] << ") " << *Inst)
             : (O << "DeadOnExit");
 }
 
 raw_ostream &LambdaOcc::print(raw_ostream &O,
-                              const SmallVectorImpl<RedClass> &Worklist) const {
+                              ArrayRef<RedClass> Worklist) const {
   return O << "Lambda @ " << Block->getName() << " (" << Worklist[Class]
            << ") [" << (UpSafe ? "U " : "!U ") << (CanBeAnt ? "C " : "!C ")
            << (Earlier ? "E " : "!E ") << (willBeAnt() ? "W" : "!W") << "]";
@@ -439,7 +438,7 @@ public:
 };
 
 class AliasCache {
-  const SmallVectorImpl<RedClass> &Worklist;
+  ArrayRef<RedClass> Worklist;
   DenseMap<std::pair<RedIdx, MemoryLocation>, AliasResult> Aliases;
   // ^ Caches aliases between memcpy-like kill locs with each class.
   SmallVector<SmallVector<AliasResult, 8>, 8> ClassAliases;
@@ -448,7 +447,7 @@ class AliasCache {
   AliasAnalysis &AA;
 
 public:
-  AliasCache(const SmallVectorImpl<RedClass> &Worklist, AliasAnalysis &AA)
+  AliasCache(ArrayRef<RedClass> Worklist, AliasAnalysis &AA)
       : Worklist(Worklist), AA(AA) {}
 
   AliasResult alias(RedIdx A, const MemoryLocation &Loc) {
