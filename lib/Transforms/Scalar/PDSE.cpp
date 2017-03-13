@@ -141,6 +141,9 @@ struct RealOcc final : public Occurrence {
   raw_ostream &print(raw_ostream &, ArrayRef<RedClass>) const;
 };
 
+Value *getStoreOp(Instruction &);
+Instruction &setStoreOp(Instruction &, Value &);
+
 struct LambdaOcc final : public Occurrence {
   struct Operand {
     Occurrence *Inner;
@@ -215,31 +218,6 @@ struct LambdaOcc final : public Occurrence {
   void resetEarlier() { Earlier = false; }
 
   bool willBeAnt() const { return CanBeAnt && !Earlier; }
-
-  static Value *getStoreOp(Instruction &I) {
-    if (auto *SI = dyn_cast<StoreInst>(&I)) {
-      return SI->getValueOperand();
-    } else if (auto *MI = dyn_cast<MemSetInst>(&I)) {
-      return MI->getValue();
-    } else if (auto *MI = dyn_cast<MemTransferInst>(&I)) {
-      return MI->getRawSource();
-    } else {
-      llvm_unreachable("Unknown real occurrence type.");
-    }
-  }
-
-  static Instruction &setStoreOp(Instruction &I, Value &V) {
-    if (auto *SI = dyn_cast<StoreInst>(&I)) {
-      SI->setOperand(0, &V);
-    } else if (auto *MI = dyn_cast<MemSetInst>(&I)) {
-      MI->setValue(&V);
-    } else if (auto *MI = dyn_cast<MemTransferInst>(&I)) {
-      MI->setSource(&V);
-    } else {
-      llvm_unreachable("Unknown real occurrence type.");
-    }
-    return I;
-  }
 
   // See if this lambda's _|_ operands can be filled in. This requires that all
   // uses of this lambda are the same instruction type and DSE-able (e.g., not
@@ -474,6 +452,47 @@ public:
   }
 };
 
+Value *getStoreOp(Instruction &I) {
+  if (auto *SI = dyn_cast<StoreInst>(&I)) {
+    return SI->getValueOperand();
+  } else if (auto *MI = dyn_cast<MemSetInst>(&I)) {
+    return MI->getValue();
+  } else if (auto *MI = dyn_cast<MemTransferInst>(&I)) {
+    return MI->getRawSource();
+  } else {
+    llvm_unreachable("Unknown real occurrence type.");
+  }
+}
+
+Instruction &setStoreOp(Instruction &I, Value &V) {
+  if (auto *SI = dyn_cast<StoreInst>(&I)) {
+    SI->setOperand(0, &V);
+  } else if (auto *MI = dyn_cast<MemSetInst>(&I)) {
+    MI->setValue(&V);
+  } else if (auto *MI = dyn_cast<MemTransferInst>(&I)) {
+    MI->setSource(&V);
+  } else {
+    llvm_unreachable("Unknown real occurrence type.");
+  }
+  return I;
+}
+
+// If Inst has the potential to be a DSE candidate, return its write location
+// and a real occurrence wrapper.
+Optional<std::pair<MemoryLocation, RealOcc>> makeRealOcc(Instruction &I) {
+  using std::make_pair;
+  if (auto *SI = dyn_cast<StoreInst>(&I)) {
+    return make_pair(MemoryLocation::get(SI), RealOcc(NextID++, I));
+  } else if (auto *MI = dyn_cast<MemSetInst>(&I)) {
+    return make_pair(MemoryLocation::getForDest(MI), RealOcc(NextID++, I));
+  } else if (auto *MI = dyn_cast<MemTransferInst>(&I)) {
+    // memmove, memcpy.
+    return make_pair(MemoryLocation::getForDest(MI),
+                     RealOcc(NextID++, I, MemoryLocation::getForSource(MI)));
+  }
+  return None;
+}
+
 using InstOrReal = PointerUnion<Instruction *, RealOcc *>;
 
 struct BlockInfo {
@@ -502,23 +521,6 @@ struct PDSE {
        const TargetLibraryInfo &TLI)
       : F(F), AA(AA), PDT(PDT), TLI(TLI), NextID(1), AC(Worklist, AA),
         Tracker(F, TLI), DeadOnExit(0, *F.getEntryBlock().getTerminator()) {}
-
-  // If Inst has the potential to be a DSE candidate, return its write
-  // location
-  // and a real occurrence wrapper.
-  Optional<std::pair<MemoryLocation, RealOcc>> makeRealOcc(Instruction &I) {
-    using std::make_pair;
-    if (auto *SI = dyn_cast<StoreInst>(&I)) {
-      return make_pair(MemoryLocation::get(SI), RealOcc(NextID++, I));
-    } else if (auto *MI = dyn_cast<MemSetInst>(&I)) {
-      return make_pair(MemoryLocation::getForDest(MI), RealOcc(NextID++, I));
-    } else if (auto *MI = dyn_cast<MemTransferInst>(&I)) {
-      // memmove, memcpy.
-      return make_pair(MemoryLocation::getForDest(MI),
-                       RealOcc(NextID++, I, MemoryLocation::getForSource(MI)));
-    }
-    return None;
-  }
 
   RedIdx assignClass(const MemoryLocation &Loc, RealOcc &Occ,
                      DenseMap<MemoryLocation, RedIdx> &BelongsToClass) {
