@@ -613,8 +613,7 @@ struct PDSE {
       // Has a load that could kill some incoming class, in addition to the same
       // store loc interaction above.
       for (RedIdx Idx = 0; Idx < Worklist.size(); Idx += 1)
-        if (S.live(Idx) && Idx != Occ.Class &&
-            AC.alias(Idx, *Occ.KillLoc) != NoAlias) {
+        if (S.live(Idx) && AC.alias(Idx, *Occ.KillLoc) != NoAlias) {
           DEBUG(dbgs() << "KillLoc aliases: " << AC.alias(Idx, *Occ.KillLoc)
                        << "\n");
           kill(Idx, S);
