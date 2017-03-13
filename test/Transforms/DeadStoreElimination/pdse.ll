@@ -478,3 +478,10 @@ bb2:
 exit:
     ret void
 }
+
+; no DSE.
+define void @kills_own_occ_class(i8* %a, i8* %b) {
+    store i8 3, i8* %a
+    call void @llvm.memmove.p0i8.p0i8.i64(i8* %a, i8* nonnull %b, i64 1, i32 8, i1 false)
+    ret void
+}
