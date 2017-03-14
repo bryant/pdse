@@ -247,7 +247,7 @@ struct LambdaOcc final : public Occurrence {
     return nullptr;
   }
 
-  raw_ostream &print(raw_ostream &, ArrayRef<RedClass>) const;
+  raw_ostream &print(raw_ostream &, ArrayRef<RedClass>, bool = false) const;
 };
 
 // Factored redundancy graph representation for each maximal group of
@@ -365,11 +365,24 @@ raw_ostream &RealOcc::print(raw_ostream &O, ArrayRef<RedClass> Worklist) const {
             : (O << "DeadOnExit");
 }
 
-raw_ostream &LambdaOcc::print(raw_ostream &O,
-                              ArrayRef<RedClass> Worklist) const {
-  return O << "Lambda @ " << Block->getName() << " (" << Worklist[Class]
-           << ") [" << (UpSafe ? "U " : "!U ") << (CanBeAnt ? "C " : "!C ")
-           << (Earlier ? "E " : "!E ") << (willBeAnt() ? "W" : "!W") << "]";
+raw_ostream &LambdaOcc::print(raw_ostream &O, ArrayRef<RedClass> Worklist,
+                              bool UsesDefs) const {
+  O << "Lambda @ " << Block->getName() << " (" << Worklist[Class] << ") ["
+    << (UpSafe ? "U " : "!U ") << (CanBeAnt ? "C " : "!C ")
+    << (Earlier ? "E " : "!E ") << (willBeAnt() ? "W" : "!W") << "]";
+  if (UsesDefs) {
+    O << "\n";
+    for (LambdaOcc::RealUse &Use : L->Uses)
+      Use.Occ->print(dbgs() << "\tUse: ", Worklist) << "\n";
+
+    dbgs() << "\n";
+    for (LambdaOcc::Operand &Def : L->Defs)
+      if (RealOcc *Occ = Def.hasRealUse())
+        Occ->print(dbgs() << "\tDef: ", Worklist) << "\n";
+      else
+        Def.getLambda()->print(dbgs() << "\tDef: ", Worklist) << "\n";
+  }
+  return O;
 }
 
 class EscapeTracker {
