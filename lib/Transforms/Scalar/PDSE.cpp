@@ -742,23 +742,12 @@ struct PDSE {
   void convertPartialReds() {
     // Maps a lambda block successor to either itself or its split edge block.
     DenseMap<BasicBlock *, BasicBlock *> SplitBlocks;
+
     for (RedClass &Class : Worklist) {
       // Determine PRE-ability of this class' lambdas.
       Class.willBeAnt();
       for (LambdaOcc *L : Class.Lambdas) {
-
-        DEBUG(L->print(dbgs() << "Trying to PRE ", Worklist) << "\n\tUses:\n");
-        for (LambdaOcc::RealUse &Use : L->Uses)
-          DEBUG(Use.Occ->print(dbgs() << "\t\t", Worklist) << "\n");
-
-        DEBUG(dbgs() << "\tDefs:\n");
-        for (LambdaOcc::Operand &Def : L->Defs) {
-          if (RealOcc *Occ = Def.hasRealUse())
-            DEBUG(Occ->print(dbgs() << "\t\t", Worklist) << "\n");
-          else
-            DEBUG(Def.getLambda()->print(dbgs() << "\t\t", Worklist) << "\n");
-        }
-
+        DEBUG(L->print(dbgs() << "Trying to PRE ", Worklist, true));
         if (L->NullDefs.empty()) {
           // Already fully redundant, no PRE needed, trivially DSEs its uses.
           DEBUG(L->print(dbgs(), Worklist) << " is already fully redun\n");
