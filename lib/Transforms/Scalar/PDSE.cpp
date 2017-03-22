@@ -382,6 +382,8 @@ raw_ostream &LambdaOcc::print(raw_ostream &O, ArrayRef<RedClass> Worklist,
         Occ->print(dbgs() << "\tDef: ", Worklist) << "\n";
       else
         Def.getLambda()->print(dbgs() << "\tDef: ", Worklist) << "\n";
+    for (const BasicBlock *BB : NullDefs)
+      dbgs() << "\tDef: _|_ @ " << BB->getName() << "\n";
   }
   return O;
 }
