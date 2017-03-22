@@ -492,7 +492,8 @@ Instruction &setStoreOp(Instruction &I, Value &V) {
 
 // If Inst has the potential to be a DSE candidate, return its write location
 // and a real occurrence wrapper.
-Optional<std::pair<MemoryLocation, RealOcc>> makeRealOcc(Instruction &I) {
+Optional<std::pair<MemoryLocation, RealOcc>> makeRealOcc(Instruction &I,
+                                                         unsigned &NextID) {
   using std::make_pair;
   if (auto *SI = dyn_cast<StoreInst>(&I)) {
     return make_pair(MemoryLocation::get(SI), RealOcc(NextID++, I));
