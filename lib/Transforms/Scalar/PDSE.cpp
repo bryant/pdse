@@ -792,7 +792,7 @@ struct PDSE {
     // Collect real occs and track their basic blocks.
     for (BasicBlock &BB : F)
       for (Instruction &I : BB)
-        if (auto LocOcc = makeRealOcc(I)) {
+        if (auto LocOcc = makeRealOcc(I, NextID)) {
           // Found a real occ for this instruction.
           RedIdx Idx =
               assignClass(LocOcc->first, LocOcc->second, BelongsToClass);
