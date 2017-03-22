@@ -255,6 +255,14 @@ ex:
   ret void
 }
 
+; PRE insertion can't happen at the bb3 lambda because its uses, despite
+; belonging to the same redundancy class, are altogether different instruction
+; types. PDSE handles this by partitioning each redundancy class into
+; like-opcode subclasses, and calculating anticipation separately for each.
+;
+; The i8* %a class below comprises of memset and store subclasses, and the bb3
+; lambda counts as up-unsafe (and ultimately not willBeAnt) for both subclasses
+; because of its exposure to aliasing, non-PRE-insertable stores.
 define void @unable_to_elim(i8* %a, i8 %b, i1 %c, i1 %d) {
 ; CHECK-LABEL: @unable_to_elim(
 ; CHECK-NEXT:  bb0:
