@@ -546,6 +546,8 @@ struct PDSE {
   RedIdx classifyLoc(const MemoryLocation &Loc,
                      DenseMap<MemoryLocation, RedIdx> &BelongsToClass,
                      EscapeTracker &Tracker) {
+    DEBUG(dbgs() << "Examining store location " << *Loc.Ptr << " x " << Loc.Size
+                 << "\n");
     if (BelongsToClass.count(Loc))
       return BelongsToClass[Loc];
 
@@ -855,6 +857,10 @@ struct PDSE {
     if (Inserted.second)
       Worklist[Idx].StoreTypes.push_back(Occ.Inst);
     Occ.setClass(Idx, Inserted.first->second);
+    DEBUG(dbgs() << "Added real occ @ " << Occ.Inst->getParent()->getName()
+                 << " " << *Occ.Inst << "\n\tto subclass "
+                 << *Worklist[Idx].StoreTypes[Inserted.first->second]
+                 << "\n\tof " << Worklist[Idx] << "\n");
 
     BasicBlock *BB = Occ.Inst->getParent();
     Worklist[Idx].DefBlocks.insert(BB);
