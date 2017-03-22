@@ -61,6 +61,7 @@
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/Transforms/Utils/Local.h"
 
+#include <forward_list>
 #include <list>
 
 #define DEBUG_TYPE "pdse"
@@ -525,7 +526,7 @@ struct PDSE {
   AliasCache AC;
   EscapeTracker Tracker;
   DenseMap<const BasicBlock *, BlockInfo> Blocks;
-  SmallVector<Instruction *, 16> DeadStores;
+  std::forward_list<Instruction *> DeadStores;
   SmallVector<RedClass, 16> Worklist;
   RealOcc DeadOnExit;
   // ^ A faux occurrence used to detect stores to non-escaping memory that are
@@ -667,7 +668,7 @@ struct PDSE {
     DEBUG(dbgs() << "DSE-ing " << I << " (" << I.getParent()->getName()
                  << ")\n");
     ++NumStores;
-    DeadStores.push_back(&I);
+    DeadStores.push_front(&I);
   }
 
   RenameState renameBlock(BasicBlock &BB, RenameState S) {
@@ -839,12 +840,13 @@ struct PDSE {
 
     // DSE.
     while (!DeadStores.empty()) {
-      Instruction *Dead = DeadStores.pop_back_val();
+      Instruction *Dead = DeadStores.front();
+      DeadStores.pop_front();
       for (Use &U : Dead->operands()) {
         Instruction *Op = dyn_cast<Instruction>(U);
         U.set(nullptr);
         if (Op && isInstructionTriviallyDead(Op, &TLI))
-          DeadStores.push_back(Op);
+          DeadStores.push_front(Op);
       }
       Dead->eraseFromParent();
     }
