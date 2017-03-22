@@ -826,6 +826,11 @@ struct PDSE {
               (I.getOcc() && I.getOcc()->KillLoc.Ptr &&
                AA.alias(Worklist[Idx].Loc, I.getOcc()->KillLoc) != NoAlias) ||
               (II && getModRefInfo(Idx, *II) & MRI_Ref)) {
+            DEBUG(dbgs() << "Found kill for " << Worklist[Idx] << ": ");
+            if (II)
+              DEBUG(dbgs() << *II << "\n");
+            else
+              DEBUG(I.getOcc()->print(dbgs(), Worklist) << "\n");
             Worklist[Idx].DefBlocks.insert(&BB);
             break;
           }
