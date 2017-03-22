@@ -513,3 +513,28 @@ define void @kills_own_occ_class(i8* %a, i8* %b) {
     call void @llvm.memmove.p0i8.p0i8.i64(i8* %a, i8* nonnull %b, i64 1, i32 8, i1 false)
     ret void
 }
+
+; i1* %tmp and i8* %arg belong to the same redundancy class, but have different
+; types. So subclasses need to be grouped by the store value operand type in
+; addition to opcode.
+define void @subclass_on_store_value_type_too(i8* %arg) {
+; CHECK-LABEL: @subclass_on_store_value_type_too(
+; CHECK-NEXT:  bb:
+; CHECK-NEXT:    [[TMP:%.*]] = bitcast i8* [[ARG:%.*]] to i1*
+; CHECK-NEXT:    br label [[BB1:%.*]]
+; CHECK:       bb1:
+; CHECK-NEXT:    br i1 undef, label [[BB1]], label [[BB2:%.*]]
+; CHECK:       bb2:
+; CHECK-NEXT:    store i1 undef, i1* [[TMP]]
+; CHECK-NEXT:    ret void
+;
+bb:
+  store i8 -123, i8* %arg
+  %tmp = bitcast i8* %arg to i1*
+  br label %bb1
+bb1:
+  store i1 undef, i1* %tmp
+  br i1 undef, label %bb1, label %bb2
+bb2:
+  ret void
+}
