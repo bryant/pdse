@@ -373,11 +373,11 @@ raw_ostream &LambdaOcc::print(raw_ostream &O, ArrayRef<RedClass> Worklist,
     << (Earlier ? "E " : "!E ") << (willBeAnt() ? "W" : "!W") << "]";
   if (UsesDefs) {
     O << "\n";
-    for (LambdaOcc::RealUse &Use : L->Uses)
+    for (const LambdaOcc::RealUse &Use : Uses)
       Use.Occ->print(dbgs() << "\tUse: ", Worklist) << "\n";
 
     dbgs() << "\n";
-    for (LambdaOcc::Operand &Def : L->Defs)
+    for (const LambdaOcc::Operand &Def : Defs)
       if (RealOcc *Occ = Def.hasRealUse())
         Occ->print(dbgs() << "\tDef: ", Worklist) << "\n";
       else
