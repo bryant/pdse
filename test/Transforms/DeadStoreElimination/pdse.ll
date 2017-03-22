@@ -43,6 +43,24 @@ exit:
 }
 
 define void @lo_and_chow_maythrow(i8* %x, i1 %br0, i1 %br1) {
+; CHECK-LABEL: @lo_and_chow_maythrow(
+; CHECK-NEXT:  bb0:
+; CHECK-NEXT:    [[V:%.*]] = load i8, i8* [[X:%.*]]
+; CHECK-NEXT:    [[V1:%.*]] = add nuw i8 [[V]], 1
+; CHECK-NEXT:    br label [[BB1:%.*]]
+; CHECK:       bb1:
+; CHECK-NEXT:    [[TMP0:%.*]] = phi i8 [ [[V1]], [[BB3:%.*]] ], [ [[V1]], [[BB0:%.*]] ]
+; CHECK-NEXT:    br i1 [[BR0:%.*]], label [[BB2:%.*]], label [[BB3]]
+; CHECK:       bb2:
+; CHECK-NEXT:    store i8 [[TMP0]], i8* [[X]]
+; CHECK-NEXT:    call void @may_throw()
+; CHECK-NEXT:    br label [[BB3]]
+; CHECK:       bb3:
+; CHECK-NEXT:    br i1 [[BR1:%.*]], label [[BB1]], label [[EXIT:%.*]]
+; CHECK:       exit:
+; CHECK-NEXT:    store i8 [[V1]], i8* [[X]]
+; CHECK-NEXT:    ret void
+;
 bb0:
   %v = load i8, i8* %x
   %v1 = add nuw i8 %v, 1
