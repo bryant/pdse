@@ -272,7 +272,7 @@ struct RedClass {
   SmallVector<LambdaOcc *, 8> Lambdas;
   std::vector<Instruction *> StoreTypes;
 
-  DenseMap<unsigned, SubIdx> Subclasses;
+  DenseMap<std::pair<unsigned, Type *>, SubIdx> Subclasses;
   SmallPtrSet<BasicBlock *, 8> DefBlocks;
 
   RedClass(MemoryLocation Loc, bool Escapes, bool Returned)
@@ -848,8 +848,10 @@ struct PDSE {
   }
 
   void addRealOcc(RealOcc &&Occ, RedIdx Idx) {
-    auto Inserted = Worklist[Idx].Subclasses.insert(
-        {Occ.Inst->getOpcode(), Worklist[Idx].numSubclasses()});
+    auto Key =
+        std::make_pair(Occ.Inst->getOpcode(), getStoreOp(*Occ.Inst)->getType());
+    auto Inserted =
+        Worklist[Idx].Subclasses.insert({Key, Worklist[Idx].numSubclasses()});
     if (Inserted.second)
       Worklist[Idx].StoreTypes.push_back(Occ.Inst);
     Occ.setClass(Idx, Inserted.first->second);
