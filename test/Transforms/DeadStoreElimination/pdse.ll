@@ -261,8 +261,10 @@ ex:
 ; like-opcode subclasses, and calculating anticipation separately for each.
 ;
 ; The i8* %a class below comprises of memset and store subclasses, and the bb3
-; lambda counts as up-unsafe (and ultimately not willBeAnt) for both subclasses
-; because of its exposure to aliasing, non-PRE-insertable stores.
+; lambda counts as up-unsafe (and ultimately not willBeAnt) for both because:
+; For the store subclass, bb3 is exposed to a memset (which counts as an
+; aliasing, non-PRE-insertable occurrence), and vice versa for the memset
+; subclass.
 define void @unable_to_elim(i8* %a, i8 %b, i1 %c, i1 %d) {
 ; CHECK-LABEL: @unable_to_elim(
 ; CHECK-NEXT:  bb0:
