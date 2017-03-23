@@ -204,7 +204,7 @@ bb4:
   ret void
 }
 
-define void @memcpy_example(i8* %a, i8* %b, i1 %br0) {
+define void @memcpy_example(i8* %a, i8* noalias %b, i1 %br0) {
 ; CHECK-LABEL: @memcpy_example(
 ; CHECK-NEXT:  bb0:
 ; CHECK-NEXT:    br i1 [[BR0:%.*]], label [[BB1:%.*]], label [[BB2:%.*]]
