@@ -205,11 +205,11 @@ struct LambdaOcc final : public Occurrence {
   std::vector<SubFlags> Flags;
   // ^ Anticipation computation, indexed by subclass.
 
-  bool upSafe(SubIdx Sub) { return Flags[Sub].UpSafe; }
+  bool upSafe(SubIdx Sub) const { return Flags[Sub].UpSafe; }
 
-  bool canBeAnt(SubIdx Sub) { return Flags[Sub].CanBeAnt; }
+  bool canBeAnt(SubIdx Sub) const { return Flags[Sub].CanBeAnt; }
 
-  bool earlier(SubIdx Sub) { return Flags[Sub].Earlier; }
+  bool earlier(SubIdx Sub) const { return Flags[Sub].Earlier; }
 
   LambdaOcc(unsigned ID, BasicBlock &Block, RedIdx Class,
             unsigned NumSubclasses)
