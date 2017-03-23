@@ -14,9 +14,10 @@ define void @lo_and_chow(i8* %x, i1 %br0, i1 %br1) {
 ; CHECK-NEXT:    [[V1:%.*]] = add nuw i8 [[V]], 1
 ; CHECK-NEXT:    br label [[BB1:%.*]]
 ; CHECK:       bb1:
-; CHECK-NEXT:    br i1 [[BR0:%.*]], label [[BB2:%.*]], label [[BB3:%.*]]
+; CHECK-NEXT:    [[TMP0:%.*]] = phi i8 [ [[V1]], [[BB3:%.*]] ], [ [[V1]], [[BB0:%.*]] ]
+; CHECK-NEXT:    br i1 [[BR0:%.*]], label [[BB2:%.*]], label [[BB3]]
 ; CHECK:       bb2:
-; CHECK-NEXT:    store i8 [[V1]], i8* [[X]]
+; CHECK-NEXT:    store i8 [[TMP0]], i8* [[X]]
 ; CHECK-NEXT:    [[T:%.*]] = load i8, i8* [[X]]
 ; CHECK-NEXT:    br label [[BB3]]
 ; CHECK:       bb3:
