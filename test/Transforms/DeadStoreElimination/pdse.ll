@@ -646,6 +646,27 @@ bb2:
   ret void
 }
 
+define void @dont_include_nonsubclass_uses(i8* %arg) {
+; CHECK-LABEL: @dont_include_nonsubclass_uses(
+; CHECK-NEXT:  bb:
+; CHECK-NEXT:    br label [[BB1:%.*]]
+; CHECK:       bb1:
+; CHECK-NEXT:    br i1 undef, label [[BB1]], label [[BB2:%.*]]
+; CHECK:       bb2:
+; CHECK-NEXT:    store i8 -123, i8* [[ARG:%.*]]
+; CHECK-NEXT:    ret void
+;
+bb:
+  %tmp = bitcast i8* %arg to i1*
+  br label %bb1
+bb1:
+  store i1 undef, i1* %tmp
+  br i1 undef, label %bb1, label %bb2
+bb2:
+  store i8 -123, i8* %arg
+  ret void
+}
+
 ; The critical edge from the lambda at bb4 to bb6 is an unsplittable, which
 ; prevents PRE from filling its corresponding null def. PDSE therefore
 ; classifies bb4 as `CanBeAnt == false`.
