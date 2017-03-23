@@ -793,6 +793,7 @@ struct PDSE {
       // Determine PRE-ability of this class' lambdas.
       Class.computeWillBeAnt();
 
+      // TODO: Iterate by lambda, not subclass.
       SSAUpdater StoreVals;
       for (SubIdx Sub = 0; Sub < Class.numSubclasses(); Sub += 1) {
         assert(getStoreOp(*Class.StoreTypes[Sub]) &&
@@ -807,12 +808,14 @@ struct PDSE {
                 << "\n");
           if (L->willBeAnt(Sub))
             for (LambdaOcc::RealUse &Use : L->Uses) {
-              DEBUG(dbgs() << "Including " << *getStoreOp(Use.getInst())
-                           << "\n");
-              StoreVals.AddAvailableValue(Use.getInst().getParent(),
-                                          getStoreOp(Use.getInst()));
-              if (Use.Occ->canDSE())
-                dse(Use.getInst());
+              if (Use.Occ->Subclass == Sub) {
+                DEBUG(dbgs() << "Including " << *getStoreOp(Use.getInst())
+                             << "\n");
+                StoreVals.AddAvailableValue(Use.getInst().getParent(),
+                                            getStoreOp(Use.getInst()));
+                if (Use.Occ->canDSE())
+                  dse(Use.getInst());
+              }
             }
         }
         for (LambdaOcc *L : Class.Lambdas) {
