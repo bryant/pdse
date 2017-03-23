@@ -538,3 +538,72 @@ bb1:
 bb2:
   ret void
 }
+
+; The critical edge from the lambda at bb4 to bb6 is an unsplittable, which
+; prevents PRE from filling its corresponding null def. PDSE therefore
+; classifies bb4 as `CanBeAnt == false`.
+define void @cant_split_indirectbr_edge() {
+; CHECK-LABEL: @cant_split_indirectbr_edge(
+; CHECK-NEXT:  bb:
+; CHECK-NEXT:    indirectbr i8* undef, [label [[BB1:%.*]], label %bb6]
+; CHECK:       bb1:
+; CHECK-NEXT:    indirectbr i8* null, [label [[BB2:%.*]], label %bb5]
+; CHECK:       bb2:
+; CHECK-NEXT:    indirectbr i8* undef, [label %bb3]
+; CHECK:       bb3:
+; CHECK-NEXT:    indirectbr i8* undef, [label [[BB4:%.*]], label %bb3]
+; CHECK:       bb4:
+; CHECK-NEXT:    store float undef, float* undef, align 1
+; CHECK-NEXT:    indirectbr i8* undef, [label [[BB2]], label %bb6]
+; CHECK:       bb5:
+; CHECK-NEXT:    unreachable
+; CHECK:       bb6:
+; CHECK-NEXT:    ret void
+;
+bb:
+  indirectbr i8* undef, [label %bb1, label %bb6]
+bb1:
+  indirectbr i8* null, [label %bb2, label %bb5]
+bb2:
+  indirectbr i8* undef, [label %bb3]
+bb3:
+  store float undef, float* undef, align 1
+  indirectbr i8* undef, [label %bb4, label %bb3]
+bb4:
+  indirectbr i8* undef, [label %bb2, label %bb6]
+bb5:
+  unreachable
+bb6:
+  ret void
+}
+
+define void @cant_split2(i8* %arg) {
+; CHECK-LABEL: @cant_split2(
+; CHECK-NEXT:  bb:
+; CHECK-NEXT:    indirectbr i8* undef, [label [[BB1:%.*]], label %bb2]
+; CHECK:       bb1:
+; CHECK-NEXT:    store i8* blockaddress(@cant_split2, [[BB2:%.*]]), i8** undef, align 4
+; CHECK-NEXT:    indirectbr i8* undef, [label [[BB5:%.*]], label %bb1]
+; CHECK:       bb2:
+; CHECK-NEXT:    indirectbr i8* undef, [label [[BB4:%.*]], label %bb3]
+; CHECK:       bb3:
+; CHECK-NEXT:    indirectbr i8* undef, [label [[BB1]], label %bb5]
+; CHECK:       bb4:
+; CHECK-NEXT:    unreachable
+; CHECK:       bb5:
+; CHECK-NEXT:    ret void
+;
+bb:
+  indirectbr i8* undef, [label %bb1, label %bb2]
+bb1:
+  store i8* blockaddress(@cant_split2, %bb2), i8** undef, align 4
+  indirectbr i8* undef, [label %bb5, label %bb1]
+bb2:
+  indirectbr i8* undef, [label %bb4, label %bb3]
+bb3:
+  indirectbr i8* undef, [label %bb1, label %bb5]
+bb4:
+  unreachable
+bb5:
+  ret void
+}
