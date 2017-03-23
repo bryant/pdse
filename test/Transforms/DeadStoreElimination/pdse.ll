@@ -435,84 +435,190 @@ bb2:
 }
 
 define void @propagate_up_unsafety(i8* %a, i1 %br0, i1 %br1, i1 %br2) {
+; CHECK-LABEL: @propagate_up_unsafety(
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    br i1 [[BR2:%.*]], label [[BB5:%.*]], label [[BB6:%.*]]
+; CHECK:       bb5:
+; CHECK-NEXT:    br label [[BB0:%.*]]
+; CHECK:       bb6:
+; CHECK-NEXT:    br label [[BB0]]
+; CHECK:       bb0:
+; CHECK-NEXT:    br i1 [[BR0:%.*]], label [[BB1:%.*]], label [[BB2:%.*]]
+; CHECK:       bb1:
+; CHECK-NEXT:    br i1 [[BR1:%.*]], label [[BB3:%.*]], label [[BB4:%.*]]
+; CHECK:       bb2:
+; CHECK-NEXT:    store i8 1, i8* [[A:%.*]]
+; CHECK-NEXT:    ret void
+; CHECK:       bb3:
+; CHECK-NEXT:    br label [[BB0]]
+; CHECK:       bb4:
+; CHECK-NEXT:    store i8 3, i8* [[A]]
+; CHECK-NEXT:    ret void
+;
 entry:
-    br i1 %br2, label %bb5, label %bb6
+  br i1 %br2, label %bb5, label %bb6
 bb5:
-    br label %bb0
+  br label %bb0
 bb6:
-    store i8 12, i8* %a
-    br label %bb0
+  store i8 12, i8* %a
+  br label %bb0
 bb0:
-    br i1 %br0, label %bb1, label %bb2
+  br i1 %br0, label %bb1, label %bb2
 bb1:
-    br i1 %br1, label %bb3, label %bb4
+  br i1 %br1, label %bb3, label %bb4
 bb2:
-    store i8 1, i8* %a
-    ret void
+  store i8 1, i8* %a
+  ret void
 bb3:
-    br label %bb0
+  br label %bb0
 bb4:
-    store i8 3, i8* %a
-    ret void
+  store i8 3, i8* %a
+  ret void
 }
 
 define void @multiple_insertions(i8* %a, i32 %br0) {
+; CHECK-LABEL: @multiple_insertions(
+; CHECK-NEXT:  bb0:
+; CHECK-NEXT:    switch i32 [[BR0:%.*]], label [[BB1:%.*]] [
+; CHECK-NEXT:    i32 1, label [[BB2:%.*]]
+; CHECK-NEXT:    i32 2, label [[BB3:%.*]]
+; CHECK-NEXT:    ]
+; CHECK:       bb1:
+; CHECK-NEXT:    store i8 12, i8* [[A:%.*]]
+; CHECK-NEXT:    br label [[BB4:%.*]]
+; CHECK:       bb2:
+; CHECK-NEXT:    store i8 12, i8* [[A]]
+; CHECK-NEXT:    br label [[BB4]]
+; CHECK:       bb3:
+; CHECK-NEXT:    store i8 12, i8* [[A]]
+; CHECK-NEXT:    br label [[BB4]]
+; CHECK:       bb4:
+; CHECK-NEXT:    ret void
+;
 bb0:
-    store i8 12, i8* %a
-    switch i32 %br0, label %bb1 [
-        i32 1, label %bb2
-        i32 2, label %bb3
-    ]
+  store i8 12, i8* %a
+  switch i32 %br0, label %bb1 [
+  i32 1, label %bb2
+  i32 2, label %bb3
+  ]
 bb1:
-    store i8 12, i8* %a
-    br label %bb4
+  store i8 12, i8* %a
+  br label %bb4
 bb2:
-    br label %bb4
+  br label %bb4
 bb3:
-    br label %bb4
+  br label %bb4
 bb4:
-    ret void
+  ret void
+}
+
+; The lambda at bb1 can be PRE-ed, but the insertion comes from behind an
+; earlier lambda -- the one at bb0.
+define void @propagate_uses(i8* %a, i1 %br0, i1 %br1) {
+; CHECK-LABEL: @propagate_uses(
+; CHECK-NEXT:  bb0:
+; CHECK-NEXT:    br i1 [[BR0:%.*]], label [[BB1:%.*]], label [[BB2:%.*]]
+; CHECK:       bb1:
+; CHECK-NEXT:    br i1 [[BR0]], label [[BB3:%.*]], label [[BB1_BB4_CRIT_EDGE:%.*]]
+; CHECK:       bb1.bb4_crit_edge:
+; CHECK-NEXT:    store i8 1, i8* [[A:%.*]]
+; CHECK-NEXT:    br label [[BB4:%.*]]
+; CHECK:       bb2:
+; CHECK-NEXT:    store i8 1, i8* [[A]]
+; CHECK-NEXT:    br label [[BB5:%.*]]
+; CHECK:       bb3:
+; CHECK-NEXT:    store i8 2, i8* [[A]]
+; CHECK-NEXT:    br label [[BB4]]
+; CHECK:       bb4:
+; CHECK-NEXT:    br label [[BB5]]
+; CHECK:       bb5:
+; CHECK-NEXT:    ret void
+;
+bb0:
+  store i8 1, i8* %a
+  br i1 %br0, label %bb1, label %bb2
+bb1:
+  br i1 %br0, label %bb3, label %bb4
+bb2:
+  br label %bb5
+bb3:
+  store i8 2, i8* %a
+  br label %bb4
+bb4:
+  br label %bb5
+bb5:
+  ret void
 }
 
 ; Check that renaming rules handle overwrites correctly.
 define void @small_store_can_dse(i8*, i8* noalias) {
+; CHECK-LABEL: @small_store_can_dse(
+; CHECK-NEXT:  bb0:
+; CHECK-NEXT:    [[TMP2:%.*]] = getelementptr inbounds i8, i8* [[TMP0:%.*]], i64 2
+; CHECK-NEXT:    [[TMP3:%.*]] = load i8, i8* [[TMP2]]
+; CHECK-NEXT:    [[TMP4:%.*]] = bitcast i8* [[TMP0]] to i64*
+; CHECK-NEXT:    store i64 3, i64* [[TMP4]]
+; CHECK-NEXT:    br label [[BB1:%.*]]
+; CHECK:       bb1:
+; CHECK-NEXT:    [[TMP5:%.*]] = load i8, i8* [[TMP0]]
+; CHECK-NEXT:    [[TMP6:%.*]] = load i8, i8* [[TMP2]]
+; CHECK-NEXT:    call void @llvm.memcpy.p0i8.p0i8.i64(i8* [[TMP0]], i8* [[TMP1:%.*]], i64 8, i32 1, i1 false)
+; CHECK-NEXT:    ret void
+;
 bb0:
-    store i8 1, i8* %0
-    %2 = getelementptr inbounds i8, i8* %0, i64 2
-    %3 = load i8, i8* %2
-    %4 = bitcast i8* %0 to i64*
-    store i64 3, i64* %4
-    br label %bb1
+  store i8 1, i8* %0
+  %2 = getelementptr inbounds i8, i8* %0, i64 2
+  %3 = load i8, i8* %2
+  %4 = bitcast i8* %0 to i64*
+  store i64 3, i64* %4
+  br label %bb1
 bb1:
-    %5 = load i8, i8* %0
-    store i8 1, i8* %0
-    %6 = load i8, i8* %2
-    call void @llvm.memcpy.p0i8.p0i8.i64(i8* %0, i8* %1, i64 8, i32 1, i1 false)
-    ret void
+  %5 = load i8, i8* %0
+  store i8 1, i8* %0
+  %6 = load i8, i8* %2
+  call void @llvm.memcpy.p0i8.p0i8.i64(i8* %0, i8* %1, i64 8, i32 1, i1 false)
+  ret void
 }
 
-; Nothing should be inserted. The i64 store should be used by the i8 lambda in
-; bb1.
+; Nothing should be inserted. The i64 store should be used by the lambda in bb0.
 define void @no_extra_insert(i8* %a, i1 %br0) {
+; CHECK-LABEL: @no_extra_insert(
+; CHECK-NEXT:  bb0:
+; CHECK-NEXT:    br i1 [[BR0:%.*]], label [[BB1:%.*]], label [[BB2:%.*]]
+; CHECK:       bb1:
+; CHECK-NEXT:    [[B:%.*]] = bitcast i8* [[A:%.*]] to i64*
+; CHECK-NEXT:    store i64 2, i64* [[B]]
+; CHECK-NEXT:    br label [[EXIT:%.*]]
+; CHECK:       bb2:
+; CHECK-NEXT:    store i8 3, i8* [[A]]
+; CHECK-NEXT:    br label [[EXIT]]
+; CHECK:       exit:
+; CHECK-NEXT:    ret void
+;
 bb0:
-    store i8 1, i8* %a
-    br i1 %br0, label %bb1, label %bb2
+  store i8 1, i8* %a
+  br i1 %br0, label %bb1, label %bb2
 bb1:
-    %b = bitcast i8* %a to i64*
-    store i64 2, i64* %b
-    br label %exit
+  %b = bitcast i8* %a to i64*
+  store i64 2, i64* %b
+  br label %exit
 bb2:
-    store i8 3, i8* %a
-    br label %exit
+  store i8 3, i8* %a
+  br label %exit
 exit:
-    ret void
+  ret void
 }
 
-; no DSE.
+; No DSE because the memmove doubles as an aliasing load.
 define void @kills_own_occ_class(i8* %a, i8* %b) {
-    store i8 3, i8* %a
-    call void @llvm.memmove.p0i8.p0i8.i64(i8* %a, i8* nonnull %b, i64 1, i32 8, i1 false)
-    ret void
+; CHECK-LABEL: @kills_own_occ_class(
+; CHECK-NEXT:    store i8 3, i8* [[A:%.*]]
+; CHECK-NEXT:    call void @llvm.memmove.p0i8.p0i8.i64(i8* [[A]], i8* nonnull [[B:%.*]], i64 1, i32 8, i1 false)
+; CHECK-NEXT:    ret void
+;
+  store i8 3, i8* %a
+  call void @llvm.memmove.p0i8.p0i8.i64(i8* %a, i8* nonnull %b, i64 1, i32 8, i1 false)
+  ret void
 }
 
 ; i1* %tmp and i8* %arg belong to the same redundancy class, but have different
