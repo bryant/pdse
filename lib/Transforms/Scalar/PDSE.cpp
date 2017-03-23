@@ -253,7 +253,8 @@ struct LambdaOcc final : public Occurrence {
     return Flags[Sub].CanBeAnt && !Flags[Sub].Earlier;
   }
 
-  raw_ostream &print(raw_ostream &, ArrayRef<RedClass>, bool = false) const;
+  raw_ostream &print(raw_ostream &, ArrayRef<RedClass>, bool = false,
+                     SubIdx * = nullptr) const;
 };
 
 // Factored redundancy graph representation for each maximal group of
@@ -385,11 +386,12 @@ raw_ostream &RealOcc::print(raw_ostream &O, ArrayRef<RedClass> Worklist) const {
 }
 
 raw_ostream &LambdaOcc::print(raw_ostream &O, ArrayRef<RedClass> Worklist,
-                              bool UsesDefs) const {
-  O << "Lambda @ " << Block->getName() << " (" << Worklist[Class] << ") ["
-    /*<< (UpSafe ? "U " : "!U ") << (CanBeAnt ? "C " : "!C ")
-    << (Earlier ? "E " : "!E ") << (willBeAnt() ? "W" : "!W") */
-    << "]";
+                              bool UsesDefs, SubIdx *Sub) const {
+  O << "Lambda @ " << Block->getName() << " (" << Worklist[Class] << ")";
+  if (Sub)
+    dbgs() << " [" << (upSafe(*Sub) ? "U " : "!U ")
+           << (canBeAnt(*Sub) ? "C " : "!C ") << (earlier(*Sub) ? "E " : "!E ")
+           << (willBeAnt(*Sub) ? "W" : "!W") << "]";
   if (UsesDefs) {
     O << "\n";
     for (const LambdaOcc::RealUse &Use : Uses)
@@ -791,6 +793,8 @@ struct PDSE {
         // Collect all possible store operand definitions that will flow into
         // the inserted stores.
         for (LambdaOcc *L : Class.Lambdas) {
+          DEBUG(L->print(dbgs() << "Analyzing ", Worklist, false, &Sub)
+                << "\n");
           if (L->willBeAnt(Sub))
             for (LambdaOcc::RealUse &Use : L->Uses) {
               DEBUG(dbgs() << "Including " << *getStoreOp(Use.getInst())
@@ -803,10 +807,8 @@ struct PDSE {
         }
         for (LambdaOcc *L : Class.Lambdas) {
           if (L->willBeAnt(Sub)) {
-            DEBUG(L->print(dbgs() << "Trying to PRE #" << Sub, Worklist, true));
-            DEBUG(dbgs() << "  " << L->upSafe(Sub) << " " << L->canBeAnt(Sub)
-                         << " " << L->earlier(Sub) << " " << L->willBeAnt(Sub)
-                         << "\n");
+            DEBUG(L->print(dbgs() << "Trying to PRE #" << Sub, Worklist, true,
+                           &Sub));
             insertNewOccs(*L, Sub, *Class.StoreTypes[Sub], StoreVals,
                           SplitBlocks);
           }
