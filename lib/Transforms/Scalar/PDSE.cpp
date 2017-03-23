@@ -339,11 +339,10 @@ private:
   RedClass &computeCanBeAnt(SubIdx Sub) {
     auto push = [&](LambdaOcc &L, LambdaStack &Stack) {
       L.resetCanBeAnt(Sub);
-      for (LambdaOcc::LambdaUse &Use : L.LambdaUses) {
+      for (LambdaOcc::LambdaUse &Use : L.LambdaUses)
         if (!Use.getOp().hasRealUse() && !Use.L->upSafe(Sub) &&
             Use.L->canBeAnt(Sub))
           Stack.push_back(Use.L);
-      }
     };
     auto initialCond = [&](LambdaOcc &L) {
       return (!L.upSafe(Sub) && L.canBeAnt(Sub) && !L.NullDefs.empty()) ||
