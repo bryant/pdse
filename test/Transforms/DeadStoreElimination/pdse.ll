@@ -338,7 +338,7 @@ ex:
 ;       |
 ;       +------- c, b, a
 ;
-; would require multiple rounds of willBeAnt
+; would require multiple rounds of computeWillBeAnt.
 define void @pre_blocked(i8* %a, i8* %b, i8* %c, i1 %br0) {
 ; CHECK-LABEL: @pre_blocked(
 ; CHECK-NEXT:  bb0:
