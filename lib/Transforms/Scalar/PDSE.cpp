@@ -345,8 +345,8 @@ private:
     auto push = [&](LambdaOcc &L, LambdaStack &Stack) {
       L.resetCanBeAnt(Sub);
       for (LambdaOcc::LambdaUse &Use : L.LambdaUses)
-        if (!Use.getOp().hasRealUse() && !Use.L->upSafe(Sub) &&
-            Use.L->canBeAnt(Sub))
+        if (Use.L->canBeAnt(Sub) && !Use.getOp().hasRealUse() &&
+            !Use.L->upSafe(Sub))
           Stack.push_back(Use.L);
     };
     auto initialCond = [&](LambdaOcc &L) {
