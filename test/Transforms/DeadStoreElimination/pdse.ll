@@ -673,9 +673,7 @@ bb2:
 define void @cant_split_indirectbr_edge() {
 ; CHECK-LABEL: @cant_split_indirectbr_edge(
 ; CHECK-NEXT:  bb:
-; CHECK-NEXT:    indirectbr i8* undef, [label [[BB1:%.*]], label %bb6]
-; CHECK:       bb1:
-; CHECK-NEXT:    indirectbr i8* null, [label [[BB2:%.*]], label %bb5]
+; CHECK-NEXT:    indirectbr i8* undef, [label [[BB2:%.*]], label %bb6]
 ; CHECK:       bb2:
 ; CHECK-NEXT:    indirectbr i8* undef, [label %bb3]
 ; CHECK:       bb3:
@@ -683,15 +681,11 @@ define void @cant_split_indirectbr_edge() {
 ; CHECK:       bb4:
 ; CHECK-NEXT:    store float undef, float* undef, align 1
 ; CHECK-NEXT:    indirectbr i8* undef, [label [[BB2]], label %bb6]
-; CHECK:       bb5:
-; CHECK-NEXT:    unreachable
 ; CHECK:       bb6:
 ; CHECK-NEXT:    ret void
 ;
 bb:
-  indirectbr i8* undef, [label %bb1, label %bb6]
-bb1:
-  indirectbr i8* null, [label %bb2, label %bb5]
+  indirectbr i8* undef, [label %bb2, label %bb6]
 bb2:
   indirectbr i8* undef, [label %bb3]
 bb3:
@@ -699,8 +693,6 @@ bb3:
   indirectbr i8* undef, [label %bb4, label %bb3]
 bb4:
   indirectbr i8* undef, [label %bb2, label %bb6]
-bb5:
-  unreachable
 bb6:
   ret void
 }
