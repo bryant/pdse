@@ -346,7 +346,9 @@ private:
       L.resetCanBeAnt(Sub);
       for (LambdaOcc::LambdaUse &Use : L.LambdaUses)
         if (Use.L->canBeAnt(Sub) && !Use.getOp().hasRealUse() &&
-            !Use.L->upSafe(Sub))
+            (!Use.L->upSafe(Sub) ||
+             (isa<IndirectBrInst>(Use.L->Block->getTerminator()) &&
+              hasMultiplePreds(*Use.getOp().Succ))))
           Stack.push_back(Use.L);
     };
     auto initialCond = [&](LambdaOcc &L) {
