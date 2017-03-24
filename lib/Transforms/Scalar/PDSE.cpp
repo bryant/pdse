@@ -154,6 +154,12 @@ struct RealOcc final : public Occurrence {
 Value *getStoreOp(Instruction &);
 Instruction &setStoreOp(Instruction &, Value &);
 
+bool hasMultiplePreds(const BasicBlock &BB, bool AlreadyOnePred = true) {
+  auto B = pred_begin(&BB);
+  auto E = pred_end(&BB);
+  return (AlreadyOnePred || B != E) && ++B != E;
+}
+
 struct LambdaOcc final : public Occurrence {
   struct Operand {
     BasicBlock *Succ;
@@ -235,8 +241,7 @@ struct LambdaOcc final : public Occurrence {
     // - Any of the defs reside on a critical edge that can't be split.
     return isa<IndirectBrInst>(Block->getTerminator()) &&
            any_of(NullDefs, [](const BasicBlock *Succ) {
-             // TODO: predecessor count: O(n) -> O(1).
-             return std::distance(pred_begin(Succ), pred_end(Succ));
+             return hasMultiplePreds(*Succ);
            });
   }
 
