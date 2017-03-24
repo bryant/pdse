@@ -697,6 +697,34 @@ bb6:
   ret void
 }
 
+; Same as cant_split_indirectbr_edge, but with a lambda use.
+define void @cant_split_indirectbr_edge2() {
+; CHECK-LABEL: @cant_split_indirectbr_edge2(
+; CHECK-NEXT:  bb:
+; CHECK-NEXT:    indirectbr i8* undef, [label [[BB2:%.*]], label [[BB4:%.*]], label %bb6]
+; CHECK:       bb2:
+; CHECK-NEXT:    indirectbr i8* undef, [label %bb3]
+; CHECK:       bb3:
+; CHECK-NEXT:    store float undef, float* undef, align 1
+; CHECK-NEXT:    indirectbr i8* undef, [label [[BB4]], label %bb3]
+; CHECK:       bb4:
+; CHECK-NEXT:    indirectbr i8* undef, [label [[BB2]], label %bb6]
+; CHECK:       bb6:
+; CHECK-NEXT:    ret void
+;
+bb:
+  indirectbr i8* undef, [label %bb2, label %bb4, label %bb6]
+bb2:
+  indirectbr i8* undef, [label %bb3]
+bb3:
+  store float undef, float* undef, align 1
+  indirectbr i8* undef, [label %bb4, label %bb3]
+bb4:
+  indirectbr i8* undef, [label %bb2, label %bb6]
+bb6:
+  ret void
+}
+
 define void @cant_split2(i8* %arg) {
 ; CHECK-LABEL: @cant_split2(
 ; CHECK-NEXT:  bb:
