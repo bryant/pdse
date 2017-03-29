@@ -383,7 +383,7 @@ bb3:
 ;
 ; --- lambda --- s, s'
 ;       |
-;       +------- s'
+;       +------- s', s
 define void @pre_blocked_again(i64* %a, i1 %br0) {
 ; CHECK-LABEL: @pre_blocked_again(
 ; CHECK-NEXT:  bb0:
