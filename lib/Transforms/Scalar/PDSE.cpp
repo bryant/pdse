@@ -193,11 +193,13 @@ struct LambdaOcc final : public Occurrence {
   SmallVector<Operand, 4> Defs;
   SmallVector<BasicBlock *, 4> NullDefs;
   SmallVector<RealUse, 4> Uses;
-  // ^ All uses that alias or kill this lambda's occurrence class. A necessary
-  // condition for this lambda to be up-safe is that all its uses are the same
-  // class.
+  // ^ Real occurrences for which this lambda is representative (a def). Each
+  // use will be in the same redundancy class as this lambda (meaning that the
+  // stores they represent are same-sized and must-alias), but can have
+  // different sub-class indexes (memset, memcpy, plain store, etc.).
   SmallVector<LambdaUse, 4> LambdaUses;
-  // ^ Needed by the lambda refinement phases `CanBeAnt` and `Earlier`.
+  // ^ These lambdas either directly use this lambda, or use a real use of this
+  // lambda. Needed to propagate `CanBeAnt` and `Earlier`.
 
   struct SubFlags {
     // Consult the Kennedy et al. paper for these.
@@ -243,6 +245,7 @@ struct LambdaOcc final : public Occurrence {
            any_of(NullDefs, [](const BasicBlock *Succ) {
              return hasMultiplePreds(*Succ);
            });
+    // TODO: EH pads shouldn't be split either.
   }
 
   void resetUpSafe() {
@@ -280,7 +283,7 @@ struct RedClass {
   SmallVector<RedIdx, 8> Overwrites;
   // ^ Indices of redundancy classes that this class can DSE.
   SmallVector<RedIdx, 8> Interferes;
-  // ^ Indices of redundancy classes that alias this class.
+  // ^ Indices of redundancy classes that may-alias this class.
   bool Escapes;
   // ^ Upon function unwind, can Loc escape?
   bool Returned;
@@ -318,8 +321,7 @@ private:
   }
 
   // If lambda P is repr occ to an operand of lambda Q and:
-  //   - Q is up-unsafe (i.e., there is a reverse path from Q to function
-  //   entry
+  //   - Q is up-unsafe (i.e., there is a reverse path from Q to function entry
   //     that doesn't cross any real occs of Q's class), and
   //   - there are no real occs from P to Q,
   // then we can conclude that P is up-unsafe too. We use this to propagate
@@ -581,7 +583,7 @@ struct PDSE {
                           Tracker.returned(Loc));
     RedIdx NewIdx = BelongsToClass[Worklist.back().Loc] = Worklist.size() - 1;
 
-    // Copy must-aliases and may-alias into Overwrites and Interferes.
+    // Copy must-/may-aliases into Overwrites and Interferes.
     for (RedIdx Idx = 0; Idx < CachedAliases.size(); Idx += 1) {
       if (CachedAliases[Idx] == MustAlias) {
         assert(Worklist[NewIdx].Loc.Size != Worklist[Idx].Loc.Size &&
@@ -680,6 +682,7 @@ struct PDSE {
       if (S.live(Idx) && Worklist[Idx].Escapes && I.mayThrow()) {
         kill(Idx, S);
       } else if (S.live(Idx)) {
+        // TODO: Handle calls to `free` as DeadOnExit.
         ModRefInfo MRI = getModRefInfo(Idx, I);
         if (MRI & MRI_Ref)
           // Aliasing load
@@ -779,9 +782,13 @@ struct PDSE {
       else
         SplitBlocks[{L.Block, Succ}] = Succ;
 
-      // Need to insert after phis. TODO: Cache insertion pos..
-      BasicBlock::iterator InsPos = find_if(
-          *Succ, [](const Instruction &I) { return !isa<PHINode>(&I); });
+      // Need to insert after phis.
+      // - TODO: Cache insertion pos..
+      // - TODO: getFirstNonPHI; cache it. and we shouldn't be breaking eh pads,
+      //   or inserting into catchswitches.
+      BasicBlock::iterator InsPos = find_if(*Succ, [](const Instruction &I) {
+        return !isa<PHINode>(&I) && !isa<LandingPadInst>(&I);
+      });
       I.insertBefore(&*InsPos);
     };
 
