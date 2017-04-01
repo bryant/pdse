@@ -920,14 +920,14 @@ bb:
   invoke void @may_throw()
   to label %bb5 unwind label %bb1
 
-bb1:                                              ; preds = %bb
+bb1:
   %tmp2 = catchswitch within none [label %bb3] unwind to caller
 
-bb3:                                              ; preds = %bb1
+bb3:
   %tmp4 = catchpad within %tmp2 [i8* null, i32 64, i8* null]
   unreachable
 
-bb5:                                              ; preds = %bb
+bb5:
   unreachable
 }
 
@@ -955,10 +955,10 @@ bb:
   invoke void @may_throw()
   to label %bb2 unwind label %bb3
 
-bb2:                                              ; preds = %bb
+bb2:
   unreachable
 
-bb3:                                              ; preds = %bb
+bb3:
   %tmp4 = landingpad { i8*, i32 }
   catch i8* null
   %tmp5 = bitcast i32* %tmp1 to i8*
