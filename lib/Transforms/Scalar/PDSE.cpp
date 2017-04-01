@@ -557,7 +557,7 @@ Value *getWriteLoc(Instruction &I) {
   if (auto *SI = dyn_cast<StoreInst>(&I)) {
     return SI->getPointerOperand();
   } else if (auto *MI = dyn_cast<MemIntrinsic>(&I)) {
-    return MI->getDest();
+    return MI->getRawDest();
   } else {
     llvm_unreachable("Unknown real occurrence type.");
   }

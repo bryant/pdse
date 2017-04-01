@@ -17,10 +17,11 @@ define void @lo_and_chow(i8* %x, i1 %br0, i1 %br1) {
 ; CHECK-NEXT:    [[V1:%.*]] = add nuw i8 [[V]], 1
 ; CHECK-NEXT:    br label [[BB1:%.*]]
 ; CHECK:       bb1:
-; CHECK-NEXT:    [[TMP0:%.*]] = phi i8 [ [[V1]], [[BB3:%.*]] ], [ [[V1]], [[BB0:%.*]] ]
+; CHECK-NEXT:    [[TMP0:%.*]] = phi i8* [ [[X]], [[BB3:%.*]] ], [ [[X]], [[BB0:%.*]] ]
+; CHECK-NEXT:    [[TMP1:%.*]] = phi i8 [ [[V1]], [[BB3]] ], [ [[V1]], [[BB0]] ]
 ; CHECK-NEXT:    br i1 [[BR0:%.*]], label [[BB2:%.*]], label [[BB3]]
 ; CHECK:       bb2:
-; CHECK-NEXT:    store i8 [[TMP0]], i8* [[X]]
+; CHECK-NEXT:    store i8 [[TMP1]], i8* [[TMP0]]
 ; CHECK-NEXT:    [[T:%.*]] = load i8, i8* [[X]]
 ; CHECK-NEXT:    br label [[BB3]]
 ; CHECK:       bb3:
@@ -53,10 +54,11 @@ define void @lo_and_chow_maythrow(i8* %x, i1 %br0, i1 %br1) {
 ; CHECK-NEXT:    [[V1:%.*]] = add nuw i8 [[V]], 1
 ; CHECK-NEXT:    br label [[BB1:%.*]]
 ; CHECK:       bb1:
-; CHECK-NEXT:    [[TMP0:%.*]] = phi i8 [ [[V1]], [[BB3:%.*]] ], [ [[V1]], [[BB0:%.*]] ]
+; CHECK-NEXT:    [[TMP0:%.*]] = phi i8* [ [[X]], [[BB3:%.*]] ], [ [[X]], [[BB0:%.*]] ]
+; CHECK-NEXT:    [[TMP1:%.*]] = phi i8 [ [[V1]], [[BB3]] ], [ [[V1]], [[BB0]] ]
 ; CHECK-NEXT:    br i1 [[BR0:%.*]], label [[BB2:%.*]], label [[BB3]]
 ; CHECK:       bb2:
-; CHECK-NEXT:    store i8 [[TMP0]], i8* [[X]]
+; CHECK-NEXT:    store i8 [[TMP1]], i8* [[TMP0]]
 ; CHECK-NEXT:    call void @may_throw()
 ; CHECK-NEXT:    br label [[BB3]]
 ; CHECK:       bb3:
@@ -245,13 +247,14 @@ define void @multiple_pre(i8* %a, i8 %b, i1 %c, i1 %d) {
 ; CHECK:       bb2:
 ; CHECK-NEXT:    br label [[BB3]]
 ; CHECK:       bb3:
-; CHECK-NEXT:    [[TMP0:%.*]] = phi i8 [ [[R]], [[BB2]] ], [ [[S]], [[BB1]] ]
+; CHECK-NEXT:    [[TMP0:%.*]] = phi i8* [ [[A:%.*]], [[BB2]] ], [ [[A]], [[BB1]] ]
+; CHECK-NEXT:    [[TMP1:%.*]] = phi i8 [ [[R]], [[BB2]] ], [ [[S]], [[BB1]] ]
 ; CHECK-NEXT:    br i1 [[D:%.*]], label [[BB4:%.*]], label [[BB5:%.*]]
 ; CHECK:       bb4:
-; CHECK-NEXT:    store i8 [[R]], i8* [[A:%.*]]
+; CHECK-NEXT:    store i8 [[R]], i8* [[A]]
 ; CHECK-NEXT:    br label [[EX:%.*]]
 ; CHECK:       bb5:
-; CHECK-NEXT:    store i8 [[TMP0]], i8* [[A]]
+; CHECK-NEXT:    store i8 [[TMP1]], i8* [[TMP0]]
 ; CHECK-NEXT:    br label [[EX]]
 ; CHECK:       ex:
 ; CHECK-NEXT:    ret void
@@ -968,6 +971,22 @@ bb3:
 }
 
 define void @ssaupdater_crash() {
+; CHECK-LABEL: @ssaupdater_crash(
+; CHECK-NEXT:  bb:
+; CHECK-NEXT:    [[TMP:%.*]] = alloca i64, align 8
+; CHECK-NEXT:    br label [[BB5:%.*]]
+; CHECK:       bb5:
+; CHECK-NEXT:    [[TMP6:%.*]] = bitcast i64* [[TMP]] to i8*
+; CHECK-NEXT:    br i1 undef, label [[BB7:%.*]], label [[BB8:%.*]]
+; CHECK:       bb7:
+; CHECK-NEXT:    br i1 undef, label [[BB9:%.*]], label [[BB8]]
+; CHECK:       bb8:
+; CHECK-NEXT:    unreachable
+; CHECK:       bb9:
+; CHECK-NEXT:    call void @llvm.memset.p0i8.i64(i8* nonnull [[TMP6]], i8 0, i64 16, i32 8, i1 false)
+; CHECK-NEXT:    [[TMP10:%.*]] = call i64 @f(i64* [[TMP]])
+; CHECK-NEXT:    unreachable
+;
 bb:
   %tmp = alloca i64, align 8
   br label %bb5
