@@ -7,6 +7,7 @@ declare void @free(i8* nocapture)
 declare void @llvm.memcpy.p0i8.p0i8.i64(i8*, i8*, i64 , i32 , i1 )
 declare void @llvm.memmove.p0i8.p0i8.i64(i8*, i8*, i64, i32, i1)
 declare void @llvm.memset.p0i8.i64(i8*, i8, i64, i32, i1)
+declare i32 @personality(...)
 
 define void @lo_and_chow(i8* %x, i1 %br0, i1 %br1) {
 ; CHECK-LABEL: @lo_and_chow(
@@ -894,4 +895,24 @@ bb2:
 bb3:
   %use = load i8, i8* %x
   ret void
+}
+
+; Avoid PRE insertions into catchswitch blocks. In the future, consider
+; deferring insertion into each catchpad block.
+define void @catchswitch_noninsertable() personality i32 (...)* @personality {
+bb:
+  %tmp = alloca i8
+  store i8 13, i8* %tmp
+  invoke void @may_throw()
+          to label %bb5 unwind label %bb1
+
+bb1:                                              ; preds = %bb
+  %tmp2 = catchswitch within none [label %bb3] unwind to caller
+
+bb3:                                              ; preds = %bb1
+  %tmp4 = catchpad within %tmp2 [i8* null, i32 64, i8* null]
+  unreachable
+
+bb5:                                              ; preds = %bb
+  unreachable
 }
