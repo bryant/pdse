@@ -553,6 +553,27 @@ Instruction &setStoreOp(Instruction &I, Value &V) {
   return I;
 }
 
+Value *getWriteLoc(Instruction &I) {
+  if (auto *SI = dyn_cast<StoreInst>(&I)) {
+    return SI->getPointerOperand();
+  } else if (auto *MI = dyn_cast<MemIntrinsic>(&I)) {
+    return MI->getDest();
+  } else {
+    llvm_unreachable("Unknown real occurrence type.");
+  }
+}
+
+Instruction &setWriteLoc(Instruction &I, Value &V) {
+  if (auto *SI = dyn_cast<StoreInst>(&I)) {
+    SI->setOperand(1, &V);
+  } else if (auto *MI = dyn_cast<MemIntrinsic>(&I)) {
+    MI->setDest(&V);
+  } else {
+    llvm_unreachable("Unknown real occurrence type.");
+  }
+  return I;
+}
+
 // If Inst has the potential to be a DSE candidate, return its write location
 // and a real occurrence wrapper.
 Optional<std::pair<MemoryLocation, RealOcc>> makeRealOcc(Instruction &I,
@@ -841,10 +862,12 @@ struct PDSE {
       DenseMap<std::pair<BasicBlock *, BasicBlock *>, BasicBlock *>;
 
   void insertNewOccs(LambdaOcc &L, SubIdx Sub, Instruction &Ins,
-                     SSAUpdater &StoreVals, SplitEdgeMap &SplitBlocks) {
+                     SSAUpdater &StoreVals, SSAUpdater &StorePtrs,
+                     SplitEdgeMap &SplitBlocks) {
     auto insert = [&](BasicBlock *Succ) {
-      Instruction &I =
-          setStoreOp(*Ins.clone(), *StoreVals.GetValueAtEndOfBlock(L.Block));
+      Instruction &I = *Ins.clone();
+      setStoreOp(I, *StoreVals.GetValueAtEndOfBlock(L.Block));
+      setWriteLoc(I, *StorePtrs.GetValueAtEndOfBlock(L.Block));
       DEBUG(dbgs() << "PRE insert: " << I << " @ " << Succ->getName()
                    << " (from " << L.Block->getName() << ")\n");
 
@@ -882,10 +905,13 @@ struct PDSE {
 
       // TODO: Iterate by lambda, not subclass.
       SSAUpdater StoreVals;
+      SSAUpdater StorePtrs;
       for (SubIdx Sub = 0; Sub < Class.numSubclasses(); Sub += 1) {
         assert(getStoreOp(*Class.StoreTypes[Sub]) &&
                "Expected an analyzable store instruction.");
         StoreVals.Initialize(getStoreOp(*Class.StoreTypes[Sub])->getType(),
+                             Class.StoreTypes[Sub]->getName());
+        StorePtrs.Initialize(getWriteLoc(*Class.StoreTypes[Sub])->getType(),
                              Class.StoreTypes[Sub]->getName());
 
         // Collect all possible store operand definitions that will flow into
@@ -899,6 +925,8 @@ struct PDSE {
                              << "\n");
                 StoreVals.AddAvailableValue(Use.getInst().getParent(),
                                             getStoreOp(Use.getInst()));
+                StorePtrs.AddAvailableValue(Use.getInst().getParent(),
+                                            getWriteLoc(Use.getInst()));
                 if (Use.Occ->canDSE()) {
                   ++NumPartialReds;
                   dse(Use.getInst());
@@ -911,7 +939,7 @@ struct PDSE {
             DEBUG(L->print(dbgs() << "Trying to PRE subclass " << Sub << " ",
                            Worklist, false, &Sub)
                   << "\n");
-            insertNewOccs(*L, Sub, *Class.StoreTypes[Sub], StoreVals,
+            insertNewOccs(*L, Sub, *Class.StoreTypes[Sub], StoreVals, StorePtrs,
                           SplitBlocks);
           }
         }
