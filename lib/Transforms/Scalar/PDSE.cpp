@@ -208,6 +208,24 @@ bool hasMultiplePreds(const BasicBlock &BB, bool AlreadyOnePred = true) {
   return (AlreadyOnePred || B != E) && ++B != E;
 }
 
+bool needsSplit(const BasicBlock &From, const BasicBlock &To,
+                bool FromIsLambda = true) {
+  assert(FromIsLambda && From.getTerminator()->getNumSuccessors() > 1 &&
+         "Expected From to be a lambda block, which implies multiple "
+         "successors.");
+  return (FromIsLambda || From.getTerminator()->getNumSuccessors() > 1) &&
+         hasMultiplePreds(To);
+}
+
+bool cantSplit(const BasicBlock &From, const BasicBlock &To) {
+  return isa<IndirectBrInst>(From.getTerminator()) ||
+         (To.isEHPad() && !isa<LandingPadInst>(To.getFirstNonPHI()));
+}
+
+bool cantPREInsert(const BasicBlock &BB) {
+  return BB.isEHPad() && !isa<LandingPadInst>(BB.getFirstNonPHI());
+}
+
 struct LambdaOcc final : public Occurrence {
   struct Operand {
     BasicBlock *Succ;
@@ -396,14 +414,18 @@ private:
       L.resetCanBeAnt(Sub);
       for (LambdaOcc::LambdaUse &Use : L.LambdaUses)
         if (Use.L->canBeAnt(Sub) && !Use.getOp().hasRealUse() &&
-            (!Use.L->upSafe(Sub) ||
-             (isa<IndirectBrInst>(Use.L->Block->getTerminator()) &&
-              hasMultiplePreds(*Use.getOp().Succ))))
+            (!Use.L->upSafe(Sub) || cantPREInsert(*Use.getOp().Succ) ||
+             (needsSplit(*Use.L->Block, *Use.getOp().Succ) &&
+              cantSplit(*Use.L->Block, *Use.getOp().Succ))))
           Stack.push_back(Use.L);
     };
     auto initialCond = [&](LambdaOcc &L) {
-      return (!L.upSafe(Sub) && L.canBeAnt(Sub) && !L.NullDefs.empty()) ||
-             L.hasNullNonInsertable();
+      assert(L.canBeAnt(Sub) && "Expected initial CanBeAnt == true.");
+      return (!L.upSafe(Sub) && !L.NullDefs.empty()) ||
+             any_of(L.NullDefs, [&L](const BasicBlock *Succ) {
+               return cantPREInsert(*Succ) || (needsSplit(*L.Block, *Succ) &&
+                                               cantSplit(*L.Block, *Succ));
+             });
     };
     auto alreadyTraversed = [&](LambdaOcc &L) { return !L.canBeAnt(Sub); };
 

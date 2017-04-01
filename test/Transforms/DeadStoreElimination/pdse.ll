@@ -900,11 +900,25 @@ bb3:
 ; Avoid PRE insertions into catchswitch blocks. In the future, consider
 ; deferring insertion into each catchpad block.
 define void @catchswitch_noninsertable() personality i32 (...)* @personality {
+; CHECK-LABEL: @catchswitch_noninsertable(
+; CHECK-NEXT:  bb:
+; CHECK-NEXT:    [[TMP:%.*]] = alloca i8
+; CHECK-NEXT:    store i8 13, i8* [[TMP]]
+; CHECK-NEXT:    invoke void @may_throw()
+; CHECK-NEXT:    to label [[BB5:%.*]] unwind label [[BB1:%.*]]
+; CHECK:       bb1:
+; CHECK-NEXT:    [[TMP2:%.*]] = catchswitch within none [label %bb3] unwind to caller
+; CHECK:       bb3:
+; CHECK-NEXT:    [[TMP4:%.*]] = catchpad within [[TMP2]] [i8* null, i32 64, i8* null]
+; CHECK-NEXT:    unreachable
+; CHECK:       bb5:
+; CHECK-NEXT:    unreachable
+;
 bb:
   %tmp = alloca i8
   store i8 13, i8* %tmp
   invoke void @may_throw()
-          to label %bb5 unwind label %bb1
+  to label %bb5 unwind label %bb1
 
 bb1:                                              ; preds = %bb
   %tmp2 = catchswitch within none [label %bb3] unwind to caller
