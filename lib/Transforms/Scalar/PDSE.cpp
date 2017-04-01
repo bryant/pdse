@@ -872,7 +872,7 @@ struct PDSE {
         // Collect all possible store operand definitions that will flow into
         // the inserted stores.
         for (LambdaOcc *L : Class.Lambdas) {
-          DEBUG(L->print(dbgs() << "Analyzing ", Worklist, false, &Sub)
+          DEBUG(L->print(dbgs() << "Analyzing ", Worklist, true, &Sub)
                 << "\n");
           if (L->willBeAnt(Sub))
             for (LambdaOcc::RealUse &Use : L->Uses) {
@@ -890,7 +890,7 @@ struct PDSE {
         }
         for (LambdaOcc *L : Class.Lambdas) {
           if (L->willBeAnt(Sub)) {
-            DEBUG(L->print(dbgs() << "Trying to PRE #" << Sub, Worklist, true,
+            DEBUG(L->print(dbgs() << "Trying to PRE #" << Sub, Worklist, false,
                            &Sub));
             insertNewOccs(*L, Sub, *Class.StoreTypes[Sub], StoreVals,
                           SplitBlocks);
