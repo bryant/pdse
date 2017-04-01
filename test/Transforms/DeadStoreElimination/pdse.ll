@@ -755,3 +755,114 @@ bb4:
 bb5:
   ret void
 }
+
+; FIXME:
+; A store is loop-variant iff its pointer's SSA def graph contains an SCC. Such
+; an SCC necessarily contains a phi, so reset the top of stack to _|_ upon
+; exiting the phi's block.
+define void @dont_sink_loop_variant_store(i8* %a, i8 %len) {
+; CHECK-LABEL: @dont_sink_loop_variant_store(
+; CHECK-NEXT:  bb0:
+; CHECK-NEXT:    [[DONE:%.*]] = icmp eq i8 [[LEN:%.*]], 0
+; CHECK-NEXT:    br i1 [[DONE]], label [[BB3:%.*]], label [[BB1:%.*]]
+; CHECK:       bb1:
+; CHECK-NEXT:    [[COUNT:%.*]] = phi i8 [ [[LEN]], [[BB0:%.*]] ], [ [[NEXT:%.*]], [[BB2:%.*]] ]
+; CHECK-NEXT:    [[NEXT]] = sub i8 [[COUNT]], 1
+; CHECK-NEXT:    [[LOC:%.*]] = getelementptr i8, i8* [[A:%.*]], i8 [[NEXT]]
+; CHECK-NEXT:    br label [[BB2]]
+; CHECK:       bb2:
+; CHECK-NEXT:    [[DONEYET:%.*]] = icmp eq i8 [[NEXT]], 0
+; CHECK-NEXT:    br i1 [[DONEYET]], label [[BB2_BB3_CRIT_EDGE:%.*]], label [[BB1]]
+; CHECK:       bb2.bb3_crit_edge:
+; CHECK-NEXT:    store i8 [[NEXT]], i8* [[LOC]]
+; CHECK-NEXT:    br label [[BB3]]
+; CHECK:       bb3:
+; CHECK-NEXT:    ret void
+;
+bb0:
+  %done = icmp eq i8 %len, 0
+  br i1 %done, label %bb3, label %bb1
+bb1:
+  %count = phi i8 [ %len, %bb0 ], [ %next, %bb2 ]
+  %next = sub i8 %count, 1
+  %loc = getelementptr i8, i8* %a, i8 %next
+  br label %bb2
+bb2:
+  store i8 %next, i8* %loc      ; Loop-variant store.
+  %doneyet = icmp eq i8 %next, 0
+  br i1 %doneyet, label %bb3, label %bb1
+bb3:
+  ret void
+}
+
+; Same as above, but with a loop-invariant store.
+define void @sink_loop_invariant_store(i8* %a, i8 %len) {
+; CHECK-LABEL: @sink_loop_invariant_store(
+; CHECK-NEXT:  bb0:
+; CHECK-NEXT:    [[DONE:%.*]] = icmp eq i8 [[LEN:%.*]], 0
+; CHECK-NEXT:    br i1 [[DONE]], label [[BB3:%.*]], label [[BB1:%.*]]
+; CHECK:       bb1:
+; CHECK-NEXT:    [[COUNT:%.*]] = phi i8 [ [[LEN]], [[BB0:%.*]] ], [ [[NEXT:%.*]], [[BB2:%.*]] ]
+; CHECK-NEXT:    [[NEXT]] = sub i8 [[COUNT]], 1
+; CHECK-NEXT:    [[LOC:%.*]] = getelementptr i8, i8* [[A:%.*]], i8 [[NEXT]]
+; CHECK-NEXT:    br label [[BB2]]
+; CHECK:       bb2:
+; CHECK-NEXT:    [[DONEYET:%.*]] = icmp eq i8 [[NEXT]], 0
+; CHECK-NEXT:    br i1 [[DONEYET]], label [[BB2_BB3_CRIT_EDGE:%.*]], label [[BB1]]
+; CHECK:       bb2.bb3_crit_edge:
+; CHECK-NEXT:    store i8 [[NEXT]], i8* [[A]]
+; CHECK-NEXT:    br label [[BB3]]
+; CHECK:       bb3:
+; CHECK-NEXT:    ret void
+;
+bb0:
+  %done = icmp eq i8 %len, 0
+  br i1 %done, label %bb3, label %bb1
+bb1:
+  %count = phi i8 [ %len, %bb0 ], [ %next, %bb2 ]
+  %next = sub i8 %count, 1
+  %loc = getelementptr i8, i8* %a, i8 %next
+  br label %bb2
+bb2:
+  store i8 %next, i8* %a
+  %doneyet = icmp eq i8 %next, 0
+  br i1 %doneyet, label %bb3, label %bb1
+bb3:
+  ret void
+}
+
+; Not really loop-variant, even though %offset's def graph has an SCC.
+define void @phidef(i8* %a, i1 %br0, i1 %br1) {
+; CHECK-LABEL: @phidef(
+; CHECK-NEXT:  bb0:
+; CHECK-NEXT:    br i1 [[BR0:%.*]], label [[BB1:%.*]], label [[BB2:%.*]]
+; CHECK:       bb1:
+; CHECK-NEXT:    br label [[BB3:%.*]]
+; CHECK:       bb2:
+; CHECK-NEXT:    br label [[BB3]]
+; CHECK:       bb3:
+; CHECK-NEXT:    [[OFFSET:%.*]] = phi i8 [ 123, [[BB1]] ], [ 65, [[BB2]] ], [ [[OFFSET]], [[BB4:%.*]] ]
+; CHECK-NEXT:    [[LOC:%.*]] = getelementptr i8, i8* [[A:%.*]], i8 [[OFFSET]]
+; CHECK-NEXT:    br label [[BB4]]
+; CHECK:       bb4:
+; CHECK-NEXT:    br i1 [[BR1:%.*]], label [[BB5:%.*]], label [[BB3]]
+; CHECK:       bb5:
+; CHECK-NEXT:    store i8 [[OFFSET]], i8* [[LOC]]
+; CHECK-NEXT:    ret void
+;
+bb0:
+  br i1 %br0, label %bb1, label %bb2
+bb1:
+  br label %bb3
+bb2:
+  br label %bb3
+bb3:
+  %offset = phi i8 [ 123, %bb1 ], [ 321, %bb2 ], [ %offset, %bb4 ]
+  %loc = getelementptr i8, i8* %a, i8 %offset
+  br label %bb4
+bb4:
+  store i8 %offset, i8* %loc
+  br i1 %br1, label %bb5, label %bb3
+bb5:
+  ret void
+}
