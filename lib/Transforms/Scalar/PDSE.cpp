@@ -908,8 +908,9 @@ struct PDSE {
         }
         for (LambdaOcc *L : Class.Lambdas) {
           if (L->willBeAnt(Sub)) {
-            DEBUG(L->print(dbgs() << "Trying to PRE #" << Sub, Worklist, false,
-                           &Sub));
+            DEBUG(L->print(dbgs() << "Trying to PRE subclass " << Sub << " ",
+                           Worklist, false, &Sub)
+                  << "\n");
             insertNewOccs(*L, Sub, *Class.StoreTypes[Sub], StoreVals,
                           SplitBlocks);
           }
