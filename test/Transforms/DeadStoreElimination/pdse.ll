@@ -3,6 +3,7 @@
 
 declare void @may_throw()
 declare noalias i8* @malloc(i32)
+declare void @free(i8* nocapture)
 declare void @llvm.memcpy.p0i8.p0i8.i64(i8*, i8*, i64 , i32 , i1 )
 declare void @llvm.memmove.p0i8.p0i8.i64(i8*, i8*, i64, i32, i1)
 declare void @llvm.memset.p0i8.i64(i8*, i8, i64, i32, i1)
@@ -862,5 +863,35 @@ bb4:
   store i8 %offset, i8* %loc
   br i1 %br1, label %bb5, label %bb3
 bb5:
+  ret void
+}
+
+; Calling `free` equivalent to a DeadOnExit occurrence.
+define void @test_free(i1 %br0) {
+; CHECK-LABEL: @test_free(
+; CHECK-NEXT:  bb0:
+; CHECK-NEXT:    [[X:%.*]] = call i8* @malloc(i32 4)
+; CHECK-NEXT:    store i8 1, i8* [[X]]
+; CHECK-NEXT:    br i1 [[BR0:%.*]], label [[BB1:%.*]], label [[BB2:%.*]]
+; CHECK:       bb1:
+; CHECK-NEXT:    call void @free(i8* [[X]])
+; CHECK-NEXT:    br label [[BB3:%.*]]
+; CHECK:       bb2:
+; CHECK-NEXT:    br label [[BB3]]
+; CHECK:       bb3:
+; CHECK-NEXT:    [[USE:%.*]] = load i8, i8* [[X]]
+; CHECK-NEXT:    ret void
+;
+bb0:
+  %x = call i8* @malloc(i32 4)
+  store i8 1, i8* %x
+  br i1 %br0, label %bb1, label %bb2
+bb1:
+  call void @free(i8* %x)
+  br label %bb3
+bb2:
+  br label %bb3
+bb3:
+  %use = load i8, i8* %x
   ret void
 }
