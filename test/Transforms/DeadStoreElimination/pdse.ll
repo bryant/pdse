@@ -930,3 +930,38 @@ bb3:                                              ; preds = %bb1
 bb5:                                              ; preds = %bb
   unreachable
 }
+
+; Like the above, but we can PRE into LandingPadInst blocks.
+define void @landingpad_insertable() personality i32 (...)* @personality {
+; CHECK-LABEL: @landingpad_insertable(
+; CHECK-NEXT:  bb:
+; CHECK-NEXT:    [[TMP:%.*]] = call i8* @malloc(i32 4)
+; CHECK-NEXT:    [[TMP1:%.*]] = bitcast i8* [[TMP]] to i32*
+; CHECK-NEXT:    invoke void @may_throw()
+; CHECK-NEXT:    to label [[BB2:%.*]] unwind label [[BB3:%.*]]
+; CHECK:       bb2:
+; CHECK-NEXT:    unreachable
+; CHECK:       bb3:
+; CHECK-NEXT:    [[TMP4:%.*]] = landingpad { i8*, i32 }
+; CHECK-NEXT:    catch i8* null
+; CHECK-NEXT:    [[TMP5:%.*]] = bitcast i32* [[TMP1]] to i8*
+; CHECK-NEXT:    call void @free(i8* [[TMP5]])
+; CHECK-NEXT:    unreachable
+;
+bb:
+  %tmp = call i8* @malloc(i32 4)
+  %tmp1 = bitcast i8* %tmp to i32*
+  store i32 undef, i32* %tmp1, align 4
+  invoke void @may_throw()
+  to label %bb2 unwind label %bb3
+
+bb2:                                              ; preds = %bb
+  unreachable
+
+bb3:                                              ; preds = %bb
+  %tmp4 = landingpad { i8*, i32 }
+  catch i8* null
+  %tmp5 = bitcast i32* %tmp1 to i8*
+  call void @free(i8* %tmp5)
+  unreachable
+}
