@@ -308,6 +308,7 @@ class filter_iterator
       BaseT::operator++();
   }
 
+public:
   // Construct the begin iterator. The begin iterator requires to know where end
   // is, so that it can properly stop when it hits end.
   filter_iterator(WrappedIteratorT Begin, WrappedIteratorT End, PredicateT Pred)
@@ -320,7 +321,6 @@ class filter_iterator
   // have to be engaged.
   filter_iterator(WrappedIteratorT End) : BaseT(End) {}
 
-public:
   using BaseT::operator++;
 
   filter_iterator &operator++() {

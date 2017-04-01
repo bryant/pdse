@@ -771,11 +771,9 @@ define void @dont_sink_loop_variant_store(i8* %a, i8 %len) {
 ; CHECK-NEXT:    [[LOC:%.*]] = getelementptr i8, i8* [[A:%.*]], i8 [[NEXT]]
 ; CHECK-NEXT:    br label [[BB2]]
 ; CHECK:       bb2:
-; CHECK-NEXT:    [[DONEYET:%.*]] = icmp eq i8 [[NEXT]], 0
-; CHECK-NEXT:    br i1 [[DONEYET]], label [[BB2_BB3_CRIT_EDGE:%.*]], label [[BB1]]
-; CHECK:       bb2.bb3_crit_edge:
 ; CHECK-NEXT:    store i8 [[NEXT]], i8* [[LOC]]
-; CHECK-NEXT:    br label [[BB3]]
+; CHECK-NEXT:    [[DONEYET:%.*]] = icmp eq i8 [[NEXT]], 0
+; CHECK-NEXT:    br i1 [[DONEYET]], label [[BB3]], label [[BB1]]
 ; CHECK:       bb3:
 ; CHECK-NEXT:    ret void
 ;

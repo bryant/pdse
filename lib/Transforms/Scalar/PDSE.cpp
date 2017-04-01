@@ -43,6 +43,8 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/GraphTraits.h"
+#include "llvm/ADT/SCCIterator.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/Analysis/CaptureTracking.h"
@@ -75,6 +77,52 @@ STATISTIC(NumPartialReds, "Number of partial redundancies converted.");
 static cl::opt<bool>
     PrintFRG("print-frg", cl::init(false), cl::Hidden,
              cl::desc("Print the factored redundancy graph of stores."));
+
+namespace llvm {
+namespace detail {
+struct DefIter {
+  filter_iterator<Instruction::const_op_iterator, bool (*)(const Value *)>
+      Inner;
+
+  DefIter(const Use *B, const Use *E)
+      : Inner(B, E, [](const Value *V) { return isa<Instruction>(V); }) {}
+
+  DefIter(const Instruction *I) : Inner(I->op_end()) {}
+
+  DefIter &operator++() {
+    ++Inner;
+    return *this;
+  }
+
+  DefIter operator++(int) {
+    DefIter RV = *this;
+    ++Inner;
+    return RV;
+  }
+
+  const Instruction *operator*() const { return cast<Instruction>(&*Inner); }
+
+  bool operator!=(const DefIter &Other) const { return Other.Inner != Inner; }
+
+  bool operator==(const DefIter &Other) const { return Other.Inner == Inner; }
+};
+}
+
+// SSA graph of instructions where edge (I_m, I_n) iff I_n is an operand of I_m.
+template <> struct GraphTraits<const Instruction *> {
+  using NodeRef = const Instruction *;
+  using ChildIteratorType = detail::DefIter;
+  using It = ChildIteratorType;
+
+  static NodeRef getEntryNode(NodeRef I) { return I; }
+
+  static ChildIteratorType child_begin(NodeRef I) {
+    return It(I->op_begin(), I->op_end());
+  }
+
+  static ChildIteratorType child_end(NodeRef I) { return It(I); }
+};
+};
 
 namespace {
 // Representations of factored redundancy graph elements.
@@ -533,6 +581,7 @@ public:
 struct BlockInfo {
   std::list<InstOrReal> Insts;
   std::list<LambdaOcc> Lambdas;
+  std::vector<RedIdx> KilledThisBlock;
 };
 
 struct PDSE {
@@ -717,6 +766,11 @@ struct PDSE {
         // Not a real occ, but still a meminst that could kill or alias.
         handleMayKill(*I.getInst(), S);
 
+    // Redundancy classes with SCC-indexed memory location whose def is in this
+    // block shall be killed.
+    for (RedIdx Idx : Blocks[&BB].KilledThisBlock)
+      kill(Idx, S);
+
     if (&BB == &BB.getParent()->getEntryBlock())
       // Lambdas directly exposed to reverse CFG exit are up-unsafe.
       for (RedIdx Idx = 0; Idx < S.States.size(); Idx += 1)
@@ -844,6 +898,31 @@ struct PDSE {
     }
   }
 
+  void tagSCCIndexedLocs() {
+    for (RedIdx Idx = 0; Idx < Worklist.size(); Idx += 1) {
+      DEBUG(dbgs() << "Finding SCCs for " << Worklist[Idx] << "\n");
+      if (auto *Def = dyn_cast<Instruction>(Worklist[Idx].Loc.Ptr)) {
+        const PHINode *PhiFound = nullptr;
+
+        for (scc_iterator<const Instruction *> S = scc_begin(Def);
+             !PhiFound && !S.isAtEnd(); ++S) {
+          if (S->size() > 1) {
+            auto PhiDef = find_if(
+                *S, [](const Instruction *I) { return isa<PHINode>(I); });
+            PhiFound = PhiDef == S->end() ? PhiFound : cast<PHINode>(*PhiDef);
+          }
+        }
+
+        if (PhiFound) {
+          DEBUG(dbgs() << "Def " << *Def << " belongs to an SCC that contains: "
+                       << *PhiFound << "\n");
+          Blocks[PhiFound->getParent()].KilledThisBlock.push_back(Idx);
+          continue;
+        }
+      }
+    }
+  }
+
   // Insert lambdas at reverse IDF of real occs and aliasing loads.
   void insertLambdas() {
     for (RedIdx Idx = 0; Idx < Worklist.size(); Idx += 1) {
@@ -924,6 +1003,7 @@ struct PDSE {
 
     collectOccurrences();
     insertLambdas();
+    tagSCCIndexedLocs();
     renamePass();
     convertPartialReds();
 
