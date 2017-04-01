@@ -218,8 +218,7 @@ bool needsSplit(const BasicBlock &From, const BasicBlock &To,
 }
 
 bool cantSplit(const BasicBlock &From, const BasicBlock &To) {
-  return isa<IndirectBrInst>(From.getTerminator()) ||
-         (To.isEHPad() && !isa<LandingPadInst>(To.getFirstNonPHI()));
+  return isa<IndirectBrInst>(From.getTerminator()) || To.isEHPad();
 }
 
 bool cantPREInsert(const BasicBlock &BB) {
