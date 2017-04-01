@@ -871,12 +871,12 @@ define void @test_free(i1 %br0) {
 ; CHECK-LABEL: @test_free(
 ; CHECK-NEXT:  bb0:
 ; CHECK-NEXT:    [[X:%.*]] = call i8* @malloc(i32 4)
-; CHECK-NEXT:    store i8 1, i8* [[X]]
 ; CHECK-NEXT:    br i1 [[BR0:%.*]], label [[BB1:%.*]], label [[BB2:%.*]]
 ; CHECK:       bb1:
 ; CHECK-NEXT:    call void @free(i8* [[X]])
 ; CHECK-NEXT:    br label [[BB3:%.*]]
 ; CHECK:       bb2:
+; CHECK-NEXT:    store i8 1, i8* [[X]]
 ; CHECK-NEXT:    br label [[BB3]]
 ; CHECK:       bb3:
 ; CHECK-NEXT:    [[USE:%.*]] = load i8, i8* [[X]]

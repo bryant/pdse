@@ -730,6 +730,15 @@ struct PDSE {
     for (RedIdx Idx = 0; Idx < S.States.size(); Idx += 1)
       if (S.live(Idx) && Worklist[Idx].Escapes && I.mayThrow()) {
         kill(Idx, S);
+      } else if (CallInst *F = isFreeCall(&I, &TLI)) {
+        if (!S.live(Idx)) {
+          DEBUG(dbgs() << "Found free: " << *F << "\n");
+          // Top of Idx stack is _|_, free acts as DeadOnExit.
+          if (AA.isMustAlias(F->getArgOperand(0), Worklist[Idx].Loc.Ptr)) {
+            DEBUG(dbgs() << "Frees " << Worklist[Idx] << "\n");
+            S.States[Idx] = RenameState::Incoming{&DeadOnExit};
+          }
+        }
       } else if (S.live(Idx)) {
         // TODO: Handle calls to `free` as DeadOnExit.
         ModRefInfo MRI = getModRefInfo(Idx, I);
