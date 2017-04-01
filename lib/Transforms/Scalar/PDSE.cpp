@@ -255,14 +255,14 @@ struct LambdaOcc final : public Occurrence {
   };
 
   BasicBlock *Block;
-  SmallVector<Operand, 4> Defs;
-  SmallVector<BasicBlock *, 4> NullDefs;
-  SmallVector<RealUse, 4> Uses;
+  std::vector<Operand> Defs;
+  std::vector<BasicBlock *> NullDefs;
+  std::vector<RealUse> Uses;
   // ^ Real occurrences for which this lambda is representative (a def). Each
   // use will be in the same redundancy class as this lambda (meaning that the
   // stores they represent are same-sized and must-alias), but can have
   // different sub-class indexes (memset, memcpy, plain store, etc.).
-  SmallVector<LambdaUse, 4> LambdaUses;
+  std::vector<LambdaUse> LambdaUses;
   // ^ These lambdas either directly use this lambda, or use a real use of this
   // lambda. Needed to propagate `CanBeAnt` and `Earlier`.
 
@@ -335,15 +335,15 @@ struct LambdaOcc final : public Occurrence {
 struct RedClass {
   MemoryLocation Loc;
   // ^ The memory location that each RealOcc mods and must-alias.
-  SmallVector<RedIdx, 8> Overwrites;
+  std::vector<RedIdx> Overwrites;
   // ^ Indices of redundancy classes that this class can DSE.
-  SmallVector<RedIdx, 8> Interferes;
+  std::vector<RedIdx> Interferes;
   // ^ Indices of redundancy classes that may-alias this class.
   bool Escapes;
   // ^ Upon function unwind, can Loc escape?
   bool Returned;
   // ^ Is Loc returned by the function?
-  SmallVector<LambdaOcc *, 8> Lambdas;
+  std::vector<LambdaOcc *> Lambdas;
   std::vector<Instruction *> StoreTypes;
 
   DenseMap<std::pair<unsigned, Type *>, SubIdx> Subclasses;
