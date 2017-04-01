@@ -575,7 +575,7 @@ Instruction &setWriteLoc(Instruction &I, Value &V) {
 }
 
 // If Inst has the potential to be a DSE candidate, return its write location
-// and a real occurrence wrapper.
+// and a real occurrence wrapper. TODO: Refactor this with getWriteLoc.
 Optional<std::pair<MemoryLocation, RealOcc>> makeRealOcc(Instruction &I,
                                                          unsigned &NextID) {
   using std::make_pair;
