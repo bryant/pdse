@@ -892,8 +892,7 @@ struct PDSE {
         // Collect all possible store operand definitions that will flow into
         // the inserted stores.
         for (LambdaOcc *L : Class.Lambdas) {
-          DEBUG(L->print(dbgs() << "Analyzing ", Worklist, true, &Sub)
-                << "\n");
+          DEBUG(L->print(dbgs() << "Analyzing ", Worklist, true, &Sub) << "\n");
           if (L->willBeAnt(Sub))
             for (LambdaOcc::RealUse &Use : L->Uses) {
               if (Use.Occ->Subclass == Sub) {
