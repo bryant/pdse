@@ -740,7 +740,6 @@ struct PDSE {
           }
         }
       } else if (S.live(Idx)) {
-        // TODO: Handle calls to `free` as DeadOnExit.
         ModRefInfo MRI = getModRefInfo(Idx, I);
         if (MRI & MRI_Ref)
           // Aliasing load
