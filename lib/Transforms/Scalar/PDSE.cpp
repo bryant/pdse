@@ -881,8 +881,10 @@ struct PDSE {
                              << "\n");
                 StoreVals.AddAvailableValue(Use.getInst().getParent(),
                                             getStoreOp(Use.getInst()));
-                if (Use.Occ->canDSE())
+                if (Use.Occ->canDSE()) {
+                  ++NumPartialReds;
                   dse(Use.getInst());
+                }
               }
             }
         }
