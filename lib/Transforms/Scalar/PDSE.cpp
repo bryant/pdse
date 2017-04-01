@@ -1094,7 +1094,6 @@ public:
     AU.addRequired<AAResultsWrapperPass>();
     AU.addRequired<TargetLibraryInfoWrapperPass>();
 
-    AU.setPreservesCFG();
     AU.addPreserved<GlobalsAAWrapperPass>();
   }
 
@@ -1122,7 +1121,6 @@ PreservedAnalyses PDSEPass::run(Function &F, FunctionAnalysisManager &AM) {
     return PreservedAnalyses::all();
 
   PreservedAnalyses PA;
-  PA.preserveSet<CFGAnalyses>();
   PA.preserve<GlobalsAA>();
   return PA;
 }
