@@ -304,16 +304,6 @@ struct LambdaOcc final : public Occurrence {
     return *this;
   }
 
-  // Does this lambda have null defs that can't be filled by PRE? Yes, if:
-  bool hasNullNonInsertable() const {
-    // - Any of the defs reside on a critical edge that can't be split.
-    return isa<IndirectBrInst>(Block->getTerminator()) &&
-           any_of(NullDefs, [](const BasicBlock *Succ) {
-             return hasMultiplePreds(*Succ);
-           });
-    // TODO: EH pads shouldn't be split either.
-  }
-
   void resetUpSafe() {
     for (SubFlags &F : Flags)
       F.UpSafe = false;
