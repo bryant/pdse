@@ -8,6 +8,7 @@ declare void @llvm.memcpy.p0i8.p0i8.i64(i8*, i8*, i64 , i32 , i1 )
 declare void @llvm.memmove.p0i8.p0i8.i64(i8*, i8*, i64, i32, i1)
 declare void @llvm.memset.p0i8.i64(i8*, i8, i64, i32, i1)
 declare i32 @personality(...)
+declare i64 @f(i64*)
 
 define void @lo_and_chow(i8* %x, i1 %br0, i1 %br1) {
 ; CHECK-LABEL: @lo_and_chow(
@@ -963,5 +964,26 @@ bb3:
   catch i8* null
   %tmp5 = bitcast i32* %tmp1 to i8*
   call void @free(i8* %tmp5)
+  unreachable
+}
+
+define void @ssaupdater_crash() {
+bb:
+  %tmp = alloca i64, align 8
+  br label %bb5
+
+bb5:
+  %tmp6 = bitcast i64* %tmp to i8*
+  call void @llvm.memset.p0i8.i64(i8* nonnull %tmp6, i8 0, i64 16, i32 8, i1 false)
+  br i1 undef, label %bb7, label %bb8
+
+bb7:
+  br i1 undef, label %bb9, label %bb8
+
+bb8:
+  unreachable
+
+bb9:
+  %tmp10 = call i64 @f(i64* %tmp)
   unreachable
 }
