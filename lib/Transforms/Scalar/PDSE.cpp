@@ -717,15 +717,15 @@ struct PDSE {
         // Not a real occ, but still a meminst that could kill or alias.
         handleMayKill(*I.getInst(), S);
 
-    // Lambdas directly exposed to reverse CFG exit are up-unsafe.
     if (&BB == &BB.getParent()->getEntryBlock())
+      // Lambdas directly exposed to reverse CFG exit are up-unsafe.
       for (RedIdx Idx = 0; Idx < S.States.size(); Idx += 1)
         updateUpSafety(Idx, S);
-
-    // Connect to predecessor lambdas.
-    for (BasicBlock *Pred : predecessors(&BB))
-      for (LambdaOcc &L : Blocks[Pred].Lambdas)
-        L.addOperand(BB, S.States[L.Class].ReprOcc);
+    else if (!pred_empty(&BB))
+      // Connect to predecessor lambdas.
+      for (BasicBlock *Pred : predecessors(&BB))
+        for (LambdaOcc &L : Blocks[Pred].Lambdas)
+          L.addOperand(BB, S.States[L.Class].ReprOcc);
 
     return S;
   }
