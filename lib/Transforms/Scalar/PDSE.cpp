@@ -851,6 +851,7 @@ struct PDSE {
       for (BasicBlock &BB : F)
         for (const InstOrReal &I : Blocks[&BB].Insts) {
           Instruction *II = I.getInst();
+          // These checks are ordered from least to most expensive.
           if ((II && II->mayThrow() && Worklist[Idx].Escapes) ||
               (I.getOcc() && I.getOcc()->KillLoc.Ptr &&
                AA.alias(Worklist[Idx].Loc, I.getOcc()->KillLoc) != NoAlias) ||
