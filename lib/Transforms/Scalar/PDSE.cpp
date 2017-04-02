@@ -909,7 +909,8 @@ struct PDSE {
       // Determine PRE-ability of this class' lambdas.
       Class.computeWillBeAnt();
 
-      // TODO: Iterate by lambda, not subclass.
+      // TODO: Iterate by lambda, not subclass, as the current way will iterate
+      // over the same lambda (and its defs) multiple times.
       SSAUpdater StoreVals;
       SSAUpdater StorePtrs;
       for (SubIdx Sub = 0; Sub < Class.numSubclasses(); Sub += 1) {
