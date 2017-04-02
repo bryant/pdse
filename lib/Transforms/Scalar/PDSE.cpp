@@ -758,6 +758,8 @@ struct PDSE {
         }
   }
 
+  // I could throw, or read and/or modify memory. Examine which redundancy
+  // classes it kills.
   void handleMayKill(Instruction &I, RenameState &S) {
     for (RedIdx Idx = 0; Idx < S.States.size(); Idx += 1)
       if (S.live(Idx) && Worklist[Idx].Escapes && I.mayThrow()) {
@@ -765,7 +767,8 @@ struct PDSE {
       } else if (CallInst *F = isFreeCall(&I, &TLI)) {
         if (!S.live(Idx)) {
           DEBUG(dbgs() << "Found free: " << *F << "\n");
-          // Top of Idx stack is _|_, free acts as DeadOnExit.
+          // Top of Idx's stack is _|_, so set `free` to DeadOnExit because
+          // post-dominated stores directly exposed to this are redundant.
           if (AA.isMustAlias(F->getArgOperand(0), Worklist[Idx].Loc.Ptr)) {
             DEBUG(dbgs() << "Frees " << Worklist[Idx] << "\n");
             S.States[Idx] = RenameState::Incoming{&DeadOnExit};
