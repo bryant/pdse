@@ -811,8 +811,10 @@ struct PDSE {
 
     // Redundancy classes with SCC-indexed memory location whose def is in this
     // block shall be killed.
-    for (RedIdx Idx : Blocks[&BB].KilledThisBlock)
+    for (RedIdx Idx : Blocks[&BB].KilledThisBlock) {
+      DEBUG(dbgs() << "SCC kill: " << Worklist[Idx] << "\n");
       kill(Idx, S);
+    }
 
     if (&BB == &BB.getParent()->getEntryBlock())
       // Lambdas directly exposed to reverse CFG exit are up-unsafe.
