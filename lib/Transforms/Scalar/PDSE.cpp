@@ -888,6 +888,12 @@ struct PDSE {
       I.insertBefore(&*InsPos);
     };
 
+    // From Kennedy et al.: "Insert holds for a phi operand if and only if the
+    // following hold:
+    //
+    // - the phi satisfies will_be_avail; and
+    // - the operand is _|_; or has_real_use is false for the operand, and the
+    //   operand is defined by a phi that does not satisfy will_be_avail."
     assert(L.willBeAnt(Sub) && "Can only PRE across willBeAnt lambdas.");
     for (BasicBlock *Succ : L.NullDefs)
       insert(Succ);
