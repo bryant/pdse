@@ -962,25 +962,25 @@ struct PDSE {
   void tagSCCIndexedLocs() {
     for (RedIdx Idx = 0; Idx < Worklist.size(); Idx += 1) {
       DEBUG(dbgs() << "Finding SCCs for " << Worklist[Idx] << "\n");
-      if (auto *Def = dyn_cast<Instruction>(Worklist[Idx].Loc.Ptr)) {
-        const PHINode *PhiFound = nullptr;
-
-        for (scc_iterator<const Instruction *> S = scc_begin(Def);
-             !PhiFound && !S.isAtEnd(); ++S) {
-          if (S->size() > 1) {
-            auto PhiDef = find_if(
-                *S, [](const Instruction *I) { return isa<PHINode>(I); });
-            PhiFound = PhiDef == S->end() ? PhiFound : cast<PHINode>(*PhiDef);
-          }
-        }
-
-        if (PhiFound) {
-          DEBUG(dbgs() << "Def " << *Def << " belongs to an SCC that contains: "
-                       << *PhiFound << "\n");
-          Blocks[PhiFound->getParent()].KilledThisBlock.push_back(Idx);
-          continue;
-        }
-      }
+      if (auto *Def = dyn_cast<Instruction>(Worklist[Idx].Loc.Ptr))
+        // Mark every block containing a phi that partakes in a non-trivial SSA
+        // def SCC, because such a phi is indexed by the SCC.
+        for (scc_iterator<const Instruction *> S = scc_begin(Def); !S.isAtEnd();
+             ++S)
+          if (S->size() > 1)
+            for (const Instruction *I : *S)
+              if (auto *PhiFound = dyn_cast<PHINode>(I)) {
+                const BasicBlock *PhiBlock = PhiFound->getParent();
+                if (Blocks[PhiBlock].KilledThisBlock.empty() ||
+                    Blocks[PhiBlock].KilledThisBlock.back() != Idx) {
+                  DEBUG(dbgs() << "Def " << *Def
+                               << " belongs to an SCC that contains: "
+                               << *PhiFound << "\nLaying an SCC kill at "
+                               << PhiFound->getParent()->getName() << " for "
+                               << Worklist[Idx] << "\n");
+                  Blocks[PhiBlock].KilledThisBlock.push_back(Idx);
+                }
+              }
     }
   }
 

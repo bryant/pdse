@@ -848,9 +848,9 @@ define void @multiple_scc_phis(i8* %a) {
 ; CHECK-NEXT:    [[P1:%.*]] = phi i8 [ [[P0]], [[BB1]] ], [ [[NEXTP1:%.*]], [[BB2]] ]
 ; CHECK-NEXT:    [[NEXTP1]] = add i8 1, [[P1]]
 ; CHECK-NEXT:    [[B:%.*]] = getelementptr i8, i8* [[A:%.*]], i8 [[NEXTP1]]
+; CHECK-NEXT:    store i8 [[NEXTP1]], i8* [[B]]
 ; CHECK-NEXT:    br i1 undef, label [[BB2]], label [[BB3:%.*]]
 ; CHECK:       bb3:
-; CHECK-NEXT:    store i8 [[NEXTP1]], i8* [[B]]
 ; CHECK-NEXT:    ret void
 ;
 bb0:
