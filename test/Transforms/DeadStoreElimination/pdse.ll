@@ -835,6 +835,40 @@ bb3:
   ret void
 }
 
+; Loop-variant store that connects to more than one SCC. Should not be sunk.
+define void @multiple_scc_phis(i8* %a) {
+; CHECK-LABEL: @multiple_scc_phis(
+; CHECK-NEXT:  bb0:
+; CHECK-NEXT:    br label [[BB1:%.*]]
+; CHECK:       bb1:
+; CHECK-NEXT:    [[P0:%.*]] = phi i8 [ 0, [[BB0:%.*]] ], [ [[NEXTP0:%.*]], [[BB1]] ]
+; CHECK-NEXT:    [[NEXTP0]] = add i8 1, [[P0]]
+; CHECK-NEXT:    br i1 undef, label [[BB1]], label [[BB2:%.*]]
+; CHECK:       bb2:
+; CHECK-NEXT:    [[P1:%.*]] = phi i8 [ [[P0]], [[BB1]] ], [ [[NEXTP1:%.*]], [[BB2]] ]
+; CHECK-NEXT:    [[NEXTP1]] = add i8 1, [[P1]]
+; CHECK-NEXT:    [[B:%.*]] = getelementptr i8, i8* [[A:%.*]], i8 [[NEXTP1]]
+; CHECK-NEXT:    br i1 undef, label [[BB2]], label [[BB3:%.*]]
+; CHECK:       bb3:
+; CHECK-NEXT:    store i8 [[NEXTP1]], i8* [[B]]
+; CHECK-NEXT:    ret void
+;
+bb0:
+  br label %bb1
+bb1:
+  %p0 = phi i8 [0, %bb0], [%nextp0, %bb1]
+  %nextp0 = add i8 1, %p0
+  br i1 undef, label %bb1, label %bb2
+bb2:
+  %p1 = phi i8 [%p0, %bb1], [%nextp1, %bb2]
+  %nextp1 = add i8 1, %p1
+  %b = getelementptr i8, i8* %a, i8 %nextp1
+  store i8 %nextp1, i8* %b
+  br i1 undef, label %bb2, label %bb3
+bb3:
+  ret void
+}
+
 ; Not really loop-variant, even though %offset's def graph has an SCC.
 define void @phidef(i8* %a, i1 %br0, i1 %br1) {
 ; CHECK-LABEL: @phidef(
