@@ -878,7 +878,7 @@ struct PDSE {
       else
         SplitBlocks[{L.Block, Succ}] = Succ;
 
-      // Need to insert after phis.
+      // Need to insert after PHINodes.
       // - TODO: Cache insertion pos..
       // - TODO: getFirstNonPHI; cache it. and we shouldn't be breaking eh pads,
       //   or inserting into catchswitches.
