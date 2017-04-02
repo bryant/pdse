@@ -1018,8 +1018,14 @@ struct PDSE {
   }
 
   void addRealOcc(RealOcc &&Occ, RedIdx Idx) {
+    // Subclasses are grouped together by identical opcode and store types. For
+    // instance, `store i8*` and `store i1*`, belong to the same RedIdx (they
+    // are same-sized, and assuming that they must-alias) but different
+    // SubIdx.
     auto Key =
         std::make_pair(Occ.Inst->getOpcode(), getStoreOp(*Occ.Inst)->getType());
+
+    // This will add a new subclass if `Key` isn't found.
     auto Inserted =
         Worklist[Idx].Subclasses.insert({Key, Worklist[Idx].numSubclasses()});
     if (Inserted.second)
