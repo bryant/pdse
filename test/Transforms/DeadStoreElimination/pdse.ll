@@ -762,7 +762,6 @@ bb5:
   ret void
 }
 
-; FIXME:
 ; A store is loop-variant iff its pointer's SSA def graph contains an SCC. Such
 ; an SCC necessarily contains a phi, so reset the top of stack to _|_ upon
 ; exiting the phi's block.
