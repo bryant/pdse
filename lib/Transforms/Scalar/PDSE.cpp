@@ -576,13 +576,20 @@ Optional<std::pair<MemoryLocation, RealOcc>> makeRealOcc(Instruction &I,
                                                          unsigned &NextID) {
   using std::make_pair;
   if (auto *SI = dyn_cast<StoreInst>(&I)) {
-    return make_pair(MemoryLocation::get(SI), RealOcc(NextID++, I));
+    auto Loc = MemoryLocation::get(SI);
+    assert(Loc.Size != MemoryLocation::UnknownSize &&
+           "Expected all stores to have known size.");
+    return make_pair(Loc, RealOcc(NextID++, I));
   } else if (auto *MI = dyn_cast<MemSetInst>(&I)) {
-    return make_pair(MemoryLocation::getForDest(MI), RealOcc(NextID++, I));
+    auto Loc = MemoryLocation::getForDest(MI);
+    if (Loc.Size != MemoryLocation::UnknownSize)
+      return make_pair(Loc, RealOcc(NextID++, I));
   } else if (auto *MI = dyn_cast<MemTransferInst>(&I)) {
     // memmove, memcpy.
-    return make_pair(MemoryLocation::getForDest(MI),
-                     RealOcc(NextID++, I, MemoryLocation::getForSource(MI)));
+    auto Loc = MemoryLocation::getForDest(MI);
+    if (Loc.Size != MemoryLocation::UnknownSize)
+      return make_pair(Loc,
+                       RealOcc(NextID++, I, MemoryLocation::getForSource(MI)));
   }
   return None;
 }

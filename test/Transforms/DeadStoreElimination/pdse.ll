@@ -1108,6 +1108,7 @@ define i8* @unknown_memory_location_size(i32 %len, i8* %a) {
 ; CHECK-NEXT:  bb0:
 ; CHECK-NEXT:    [[X:%.*]] = call i8* @malloc(i32 [[LEN:%.*]])
 ; CHECK-NEXT:    [[SETLEN:%.*]] = zext i32 [[LEN]] to i64
+; CHECK-NEXT:    call void @llvm.memset.p0i8.i64(i8* [[X]], i8 0, i64 [[SETLEN]], i32 1, i1 false)
 ; CHECK-NEXT:    [[CPYLEN:%.*]] = and i64 [[SETLEN]], 65536
 ; CHECK-NEXT:    call void @llvm.memcpy.p0i8.p0i8.i64(i8* [[X]], i8* [[A:%.*]], i64 [[CPYLEN]], i32 1, i1 false)
 ; CHECK-NEXT:    ret i8* [[X]]
