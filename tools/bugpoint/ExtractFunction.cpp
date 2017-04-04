@@ -309,13 +309,16 @@ llvm::SplitFunctionsOutOfModule(Module *M, const std::vector<Function *> &F,
                                 ValueToValueMapTy &VMap) {
   // Make sure functions & globals are all external so that linkage
   // between the two modules will work.
-  for (Module::iterator I = M->begin(), E = M->end(); I != E; ++I)
+  for (Module::iterator I = M->begin(), E = M->end(); I != E; ++I) {
     I->setLinkage(GlobalValue::ExternalLinkage);
+    I->setComdat(nullptr);
+  }
   for (Module::global_iterator I = M->global_begin(), E = M->global_end();
        I != E; ++I) {
     if (I->hasName() && I->getName()[0] == '\01')
       I->setName(I->getName().substr(1));
     I->setLinkage(GlobalValue::ExternalLinkage);
+    I->setComdat(nullptr);
   }
 
   ValueToValueMapTy NewVMap;
