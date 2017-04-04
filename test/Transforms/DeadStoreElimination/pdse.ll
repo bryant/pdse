@@ -1071,3 +1071,35 @@ bb3:
   %rv = phi i8* [%x, %bb1], [null, %bb2]
   ret i8* %rv
 }
+
+; There are multiple edges from bb0 to bb2, each of which are critical and must
+; be split individually.
+define void @multiple_edges_same_successor(i8* %a, i32 %b) {
+; CHECK-LABEL: @multiple_edges_same_successor(
+; CHECK-NEXT:  bb0:
+; CHECK-NEXT:    switch i32 [[B:%.*]], label [[BB1:%.*]] [
+; CHECK-NEXT:    i32 0, label [[BB0_BB2_CRIT_EDGE:%.*]]
+; CHECK-NEXT:    i32 1, label [[BB2:%.*]]
+; CHECK-NEXT:    ]
+; CHECK:       bb0.bb2_crit_edge:
+; CHECK-NEXT:    store i8 1, i8* [[A:%.*]]
+; CHECK-NEXT:    store i8 1, i8* [[A]]
+; CHECK-NEXT:    br label [[BB2]]
+; CHECK:       bb1:
+; CHECK-NEXT:    store i8 2, i8* [[A]]
+; CHECK-NEXT:    br label [[BB2]]
+; CHECK:       bb2:
+; CHECK-NEXT:    ret void
+;
+bb0:
+  store i8 1, i8* %a
+  switch i32 %b, label %bb1 [
+  i32 0, label %bb2
+  i32 1, label %bb2
+  ]
+bb1:
+  store i8 2, i8* %a
+  br label %bb2
+bb2:
+  ret void
+}
