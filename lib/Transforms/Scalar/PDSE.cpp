@@ -122,7 +122,7 @@ template <> struct GraphTraits<const Instruction *> {
 
   static ChildIteratorType child_end(NodeRef I) { return It(I); }
 };
-};
+}
 
 namespace {
 // Representations of factored redundancy graph elements.
