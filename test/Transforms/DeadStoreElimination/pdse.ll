@@ -1039,3 +1039,31 @@ bb9:
   %tmp10 = call i64 @f(i64* %tmp)
   unreachable
 }
+
+; Ensure that returned memory isn't counted as dead on exit. Since %x is
+; returned, the store in bb1 should remain.
+define i8* @not_dead_on_exit(i1 %br0) {
+; CHECK-LABEL: @not_dead_on_exit(
+; CHECK-NEXT:  bb0:
+; CHECK-NEXT:    [[X:%.*]] = call i8* @malloc(i32 1)
+; CHECK-NEXT:    br i1 [[BR0:%.*]], label [[BB1:%.*]], label [[BB2:%.*]]
+; CHECK:       bb1:
+; CHECK-NEXT:    br label [[BB3:%.*]]
+; CHECK:       bb2:
+; CHECK-NEXT:    br label [[BB3]]
+; CHECK:       bb3:
+; CHECK-NEXT:    [[RV:%.*]] = phi i8* [ [[X]], [[BB1]] ], [ null, [[BB2]] ]
+; CHECK-NEXT:    ret i8* [[RV]]
+;
+bb0:
+  %x = call i8* @malloc(i32 1)
+  br i1 %br0, label %bb1, label %bb2
+bb1:
+  store i8 23, i8* %x
+  br label %bb3
+bb2:
+  br label %bb3
+bb3:
+  %rv = phi i8* [%x, %bb1], [null, %bb2]
+  ret i8* %rv
+}
