@@ -10,6 +10,8 @@ declare void @llvm.memset.p0i8.i64(i8*, i8, i64, i32, i1)
 declare i32 @personality(...)
 declare i64 @f(i64*)
 
+; Example from Figure 10 of https://doi.org/10.1145/277650.277659 . Note how the
+; bb3 loop-invariant store is sunk out of the loop.
 define void @lo_and_chow(i8* %x, i1 %br0, i1 %br1) {
 ; CHECK-LABEL: @lo_and_chow(
 ; CHECK-NEXT:  bb0:
@@ -47,6 +49,7 @@ exit:
   ret void
 }
 
+; Same as above, but with a kill occurrence by a may-throw call.
 define void @lo_and_chow_maythrow(i8* %x, i1 %br0, i1 %br1) {
 ; CHECK-LABEL: @lo_and_chow_maythrow(
 ; CHECK-NEXT:  bb0:
