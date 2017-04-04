@@ -1072,19 +1072,18 @@ bb3:
   ret i8* %rv
 }
 
-; There are multiple edges from bb0 to bb2, each of which are critical and must
-; be split individually.
+; There are identical critical edges from bb0 to bb2 that should merge into the
+; same predecessor of the split edge.
 define void @multiple_edges_same_successor(i8* %a, i32 %b) {
 ; CHECK-LABEL: @multiple_edges_same_successor(
 ; CHECK-NEXT:  bb0:
 ; CHECK-NEXT:    switch i32 [[B:%.*]], label [[BB1:%.*]] [
 ; CHECK-NEXT:    i32 0, label [[BB0_BB2_CRIT_EDGE:%.*]]
-; CHECK-NEXT:    i32 1, label [[BB2:%.*]]
+; CHECK-NEXT:    i32 1, label [[BB0_BB2_CRIT_EDGE]]
 ; CHECK-NEXT:    ]
 ; CHECK:       bb0.bb2_crit_edge:
 ; CHECK-NEXT:    store i8 1, i8* [[A:%.*]]
-; CHECK-NEXT:    store i8 1, i8* [[A]]
-; CHECK-NEXT:    br label [[BB2]]
+; CHECK-NEXT:    br label [[BB2:%.*]]
 ; CHECK:       bb1:
 ; CHECK-NEXT:    store i8 2, i8* [[A]]
 ; CHECK-NEXT:    br label [[BB2]]

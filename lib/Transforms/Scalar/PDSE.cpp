@@ -202,19 +202,19 @@ struct RealOcc final : public Occurrence {
 Value *getStoreOp(Instruction &);
 Instruction &setStoreOp(Instruction &, Value &);
 
-bool hasMultiplePreds(const BasicBlock &BB, bool AlreadyOnePred = true) {
-  auto B = pred_begin(&BB);
-  auto E = pred_end(&BB);
-  return (AlreadyOnePred || B != E) && ++B != E;
+bool isCriticalEdge(const BasicBlock &From, const BasicBlock &To) {
+  return From.getTerminator()->getNumSuccessors() > 1 && [&]() {
+    for (auto B = pred_begin(&To); B != pred_end(&From); ++B)
+      if (*B != &From)
+        return true;
+    return false;
+  }();
 }
 
-bool needsSplit(const BasicBlock &From, const BasicBlock &To,
-                bool FromIsLambda = true) {
-  assert(FromIsLambda && From.getTerminator()->getNumSuccessors() > 1 &&
-         "Expected From to be a lambda block, which implies multiple "
-         "successors.");
-  return (FromIsLambda || From.getTerminator()->getNumSuccessors() > 1) &&
-         hasMultiplePreds(To);
+bool criticalSucc(const BasicBlock &LBlock, const BasicBlock &Succ) {
+  assert(LBlock.getTerminator()->getNumSuccessors() > 1 &&
+         "Expected From to be a lambda block.");
+  return isCriticalEdge(LBlock, Succ);
 }
 
 bool cantSplit(const BasicBlock &From, const BasicBlock &To) {
@@ -265,6 +265,7 @@ struct LambdaOcc final : public Occurrence {
   std::vector<LambdaUse> LambdaUses;
   // ^ These lambdas either directly use this lambda, or use a real use of this
   // lambda. Needed to propagate `CanBeAnt` and `Earlier`.
+  DenseSet<const BasicBlock *> AddedSuccs;
 
   struct SubFlags {
     // Consult the Kennedy et al. paper for these.
@@ -287,19 +288,22 @@ struct LambdaOcc final : public Occurrence {
   LambdaOcc(unsigned ID, BasicBlock &Block, RedIdx Class,
             unsigned NumSubclasses)
       : Occurrence{ID, Class, OccTy::Lambda}, Block(&Block), Defs(), NullDefs(),
-        Uses(), LambdaUses(), Flags(NumSubclasses) {}
+        Uses(), LambdaUses(), AddedSuccs(), Flags(NumSubclasses) {}
 
   void addUse(RealOcc &Occ) { Uses.push_back({&Occ}); }
 
   void addUse(LambdaOcc &L, size_t OpIdx) { LambdaUses.emplace_back(L, OpIdx); }
 
   LambdaOcc &addOperand(BasicBlock &Succ, Occurrence *ReprOcc) {
-    if (ReprOcc) {
-      Defs.emplace_back(Succ, *ReprOcc);
-      if (LambdaOcc *L = Defs.back().getLambda())
-        L->addUse(*this, Defs.size() - 1);
-    } else
-      NullDefs.push_back(&Succ);
+    if (!AddedSuccs.count(&Succ)) {
+      if (ReprOcc) {
+        Defs.emplace_back(Succ, *ReprOcc);
+        if (LambdaOcc *L = Defs.back().getLambda())
+          L->addUse(*this, Defs.size() - 1);
+      } else
+        NullDefs.push_back(&Succ);
+      AddedSuccs.insert(&Succ);
+    }
     return *this;
   }
 
@@ -403,7 +407,7 @@ private:
       for (LambdaOcc::LambdaUse &Use : L.LambdaUses)
         if (Use.L->canBeAnt(Sub) && !Use.getOp().hasRealUse() &&
             (!Use.L->upSafe(Sub) || cantPREInsert(*Use.getOp().Succ) ||
-             (needsSplit(*Use.L->Block, *Use.getOp().Succ) &&
+             (criticalSucc(*Use.L->Block, *Use.getOp().Succ) &&
               cantSplit(*Use.L->Block, *Use.getOp().Succ))))
           Stack.push_back(Use.L);
     };
@@ -411,7 +415,7 @@ private:
       assert(L.canBeAnt(Sub) && "Expected initial CanBeAnt == true.");
       return (!L.upSafe(Sub) && !L.NullDefs.empty()) ||
              any_of(L.NullDefs, [&L](const BasicBlock *Succ) {
-               return cantPREInsert(*Succ) || (needsSplit(*L.Block, *Succ) &&
+               return cantPREInsert(*Succ) || (criticalSucc(*L.Block, *Succ) &&
                                                cantSplit(*L.Block, *Succ));
              });
     };
@@ -874,14 +878,15 @@ struct PDSE {
       Instruction &I = *Ins.clone();
       setStoreOp(I, *StoreVals.GetValueAtEndOfBlock(L.Block));
       setWriteLoc(I, *StorePtrs.GetValueAtEndOfBlock(L.Block));
-      DEBUG(dbgs() << "PRE insert: " << I << " @ " << Succ->getName()
-                   << " (from " << L.Block->getName() << ")\n");
 
       if (SplitBlocks.count({L.Block, Succ}))
         Succ = SplitBlocks[{L.Block, Succ}];
-      else if (BasicBlock *Split = SplitCriticalEdge(L.Block, Succ))
-        Succ = SplitBlocks[{L.Block, Succ}] = Split;
-      else
+      else if (criticalSucc(*L.Block, *Succ)) {
+        CriticalEdgeSplittingOptions Opts;
+        Opts.setMergeIdenticalEdges();
+        Succ = SplitBlocks[{L.Block, Succ}] =
+            SplitCriticalEdge(L.Block, Succ, Opts);
+      } else
         SplitBlocks[{L.Block, Succ}] = Succ;
 
       // Need to insert after PHINodes.
@@ -904,9 +909,8 @@ struct PDSE {
     for (BasicBlock *Succ : L.NullDefs)
       insert(Succ);
     for (LambdaOcc::Operand &Op : L.Defs)
-      if (!Op.hasRealUse())
-        if (Op.getLambda() && !Op.getLambda()->willBeAnt(Sub))
-          insert(Op.Succ);
+      if (!Op.hasRealUse() && Op.getLambda() && !Op.getLambda()->willBeAnt(Sub))
+        insert(Op.Succ);
   }
 
   void convertPartialReds() {
