@@ -339,19 +339,18 @@ struct RedClass {
   // ^ Indices of redundancy classes that this class can DSE.
   std::vector<RedIdx> Interferes;
   // ^ Indices of redundancy classes that may-alias this class.
-  bool Escapes;
-  // ^ Upon function unwind, can Loc escape?
-  bool Returned;
-  // ^ Is Loc returned by the function?
+  bool KilledByThrow;
+  bool DeadOnExit;
   std::vector<LambdaOcc *> Lambdas;
   std::vector<Instruction *> StoreTypes;
 
   DenseMap<std::pair<unsigned, Type *>, SubIdx> Subclasses;
   SmallPtrSet<BasicBlock *, 8> DefBlocks;
 
-  RedClass(MemoryLocation Loc, bool Escapes, bool Returned)
-      : Loc(std::move(Loc)), Escapes(Escapes), Returned(Returned), Lambdas(),
-        StoreTypes(), Subclasses(), DefBlocks() {}
+  RedClass(MemoryLocation Loc, bool KilledByThrow, bool DeadOnExit)
+      : Loc(std::move(Loc)), KilledByThrow(KilledByThrow),
+        DeadOnExit(DeadOnExit), Lambdas(), StoreTypes(), Subclasses(),
+        DefBlocks() {}
 
 private:
   using LambdaStack = SmallVector<LambdaOcc *, 16>;
@@ -488,29 +487,28 @@ raw_ostream &LambdaOcc::print(raw_ostream &O, ArrayRef<RedClass> Worklist,
 class EscapeTracker {
   const DataLayout &DL;
   const TargetLibraryInfo &TLI;
-  DenseSet<const Value *> NonEscapes;
-  DenseSet<const Value *> Returns;
+  DenseMap<const Value *, bool> IsLocal;
 
 public:
-  bool escapesOnUnwind(const Value *V) {
-    if (NonEscapes.count(V))
-      return false;
-    if (isa<AllocaInst>(V) ||
-        (isAllocLikeFn(V, &TLI) && !PointerMayBeCaptured(V, false, true))) {
-      NonEscapes.insert(V);
-      return false;
-    }
-    return true;
+  bool localAlloc(const Value *V) {
+    return isa<AllocaInst>(V) || isAllocLikeFn(V, &TLI);
   }
 
-  bool escapesOnUnwind(const MemoryLocation &Loc) {
-    return escapesOnUnwind(GetUnderlyingObject(Loc.Ptr, DL));
+  bool localAlloc(const MemoryLocation &Loc) {
+    if (IsLocal.count(Loc.Ptr))
+      return IsLocal[Loc.Ptr];
+    const Value *Und = GetUnderlyingObject(Loc.Ptr, DL);
+    return IsLocal[Loc.Ptr] = IsLocal[Und] = localAlloc(Und);
   }
 
-  bool returned(const Value *V) const { return Returns.count(V); }
+  bool capturedSansReturned(const MemoryLocation &Loc) {
+    // TODO: May need to cache PointerMayBeCaptured
+    return PointerMayBeCaptured(GetUnderlyingObject(Loc.Ptr, DL), false, true);
+  }
 
-  bool returned(const MemoryLocation &Loc) const {
-    return returned(GetUnderlyingObject(Loc.Ptr, DL));
+  bool capturedOrReturned(const MemoryLocation &Loc) {
+    // TODO: May need to cache PointerMayBeCaptured
+    return PointerMayBeCaptured(GetUnderlyingObject(Loc.Ptr, DL), true, false);
   }
 
   EscapeTracker(Function &F, const TargetLibraryInfo &TLI)
@@ -518,13 +516,7 @@ public:
     // Record non-escaping args.
     for (Argument &Arg : F.args())
       if (Arg.hasByValOrInAllocaAttr())
-        NonEscapes.insert(&Arg);
-
-    // Record return values.
-    for (BasicBlock &BB : F)
-      if (auto *RI = dyn_cast<ReturnInst>(BB.getTerminator()))
-        if (Value *RetVal = RI->getReturnValue())
-          Returns.insert(GetUnderlyingObject(RetVal, DL));
+        IsLocal[&Arg] = true;
   }
 };
 
@@ -660,8 +652,17 @@ struct PDSE {
     }
 
     // Loc doesn't belong to any existing RedClass, so start a new one.
-    Worklist.emplace_back(Loc, Tracker.escapesOnUnwind(Loc),
-                          Tracker.returned(Loc));
+    if (Tracker.localAlloc(Loc)) {
+      bool KilledByThrow = Tracker.capturedSansReturned(Loc);
+      bool DeadOnExit = !Tracker.capturedOrReturned(Loc);
+      DEBUG(dbgs() << "Loc " << *Loc.Ptr << " killedbythrow/deadonexit: "
+                   << KilledByThrow << "/" << DeadOnExit << "\n");
+      Worklist.emplace_back(Loc, KilledByThrow, DeadOnExit);
+    } else {
+      DEBUG(dbgs() << "Loc " << *Loc.Ptr << " not locally allocated; assuming "
+                                            "killedbythrow + !deadonexit.\n");
+      Worklist.emplace_back(Loc, true, false);
+    }
     RedIdx NewIdx = BelongsToClass[Worklist.back().Loc] = Worklist.size() - 1;
 
     // Copy must-/may-aliases into Overwrites and Interferes.
@@ -691,7 +692,7 @@ struct PDSE {
     RenameState(ArrayRef<RedClass> Worklist, RealOcc &DeadOnExit)
         : States(Worklist.size()) {
       for (RedIdx Idx = 0; Idx < Worklist.size(); Idx += 1)
-        if (!Worklist[Idx].Escapes && !Worklist[Idx].Returned) {
+        if (Worklist[Idx].DeadOnExit) {
           DEBUG(dbgs() << "Class " << Worklist[Idx] << " is dead on exit.\n");
           States[Idx] = {&DeadOnExit};
         }
@@ -762,7 +763,7 @@ struct PDSE {
   // classes it kills.
   void handleMayKill(Instruction &I, RenameState &S) {
     for (RedIdx Idx = 0; Idx < S.States.size(); Idx += 1)
-      if (S.live(Idx) && Worklist[Idx].Escapes && I.mayThrow()) {
+      if (S.live(Idx) && Worklist[Idx].KilledByThrow && I.mayThrow()) {
         kill(Idx, S);
       } else if (CallInst *F = isFreeCall(&I, &TLI)) {
         if (!S.live(Idx)) {
@@ -992,7 +993,7 @@ struct PDSE {
         for (const InstOrReal &I : Blocks[&BB].Insts) {
           Instruction *II = I.getInst();
           // These checks are ordered from least to most expensive.
-          if ((II && II->mayThrow() && Worklist[Idx].Escapes) ||
+          if ((II && II->mayThrow() && Worklist[Idx].KilledByThrow) ||
               (I.getOcc() && I.getOcc()->KillLoc.Ptr &&
                AA.alias(Worklist[Idx].Loc, I.getOcc()->KillLoc) != NoAlias) ||
               (II && getModRefInfo(Idx, *II) & MRI_Ref)) {

@@ -1010,13 +1010,13 @@ define void @ssaupdater_crash() {
 ; CHECK-NEXT:    br label [[BB5:%.*]]
 ; CHECK:       bb5:
 ; CHECK-NEXT:    [[TMP6:%.*]] = bitcast i64* [[TMP]] to i8*
+; CHECK-NEXT:    call void @llvm.memset.p0i8.i64(i8* nonnull [[TMP6]], i8 0, i64 16, i32 8, i1 false)
 ; CHECK-NEXT:    br i1 undef, label [[BB7:%.*]], label [[BB8:%.*]]
 ; CHECK:       bb7:
 ; CHECK-NEXT:    br i1 undef, label [[BB9:%.*]], label [[BB8]]
 ; CHECK:       bb8:
 ; CHECK-NEXT:    unreachable
 ; CHECK:       bb9:
-; CHECK-NEXT:    call void @llvm.memset.p0i8.i64(i8* nonnull [[TMP6]], i8 0, i64 16, i32 8, i1 false)
 ; CHECK-NEXT:    [[TMP10:%.*]] = call i64 @f(i64* [[TMP]])
 ; CHECK-NEXT:    unreachable
 ;
@@ -1048,6 +1048,7 @@ define i8* @not_dead_on_exit(i1 %br0) {
 ; CHECK-NEXT:    [[X:%.*]] = call i8* @malloc(i32 1)
 ; CHECK-NEXT:    br i1 [[BR0:%.*]], label [[BB1:%.*]], label [[BB2:%.*]]
 ; CHECK:       bb1:
+; CHECK-NEXT:    store i8 23, i8* [[X]]
 ; CHECK-NEXT:    br label [[BB3:%.*]]
 ; CHECK:       bb2:
 ; CHECK-NEXT:    br label [[BB3]]
