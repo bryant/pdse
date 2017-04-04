@@ -80,6 +80,7 @@ static cl::opt<bool>
 
 namespace llvm {
 namespace detail {
+// Iterates over the defs of an instruction that are themselves instructions.
 struct DefIter {
   filter_iterator<Instruction::const_op_iterator, bool (*)(const Value *)>
       Inner;
