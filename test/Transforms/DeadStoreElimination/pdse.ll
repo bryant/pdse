@@ -1102,3 +1102,21 @@ bb1:
 bb2:
   ret void
 }
+
+define i8* @unknown_memory_location_size(i32 %len, i8* %a) {
+; CHECK-LABEL: @unknown_memory_location_size(
+; CHECK-NEXT:  bb0:
+; CHECK-NEXT:    [[X:%.*]] = call i8* @malloc(i32 [[LEN:%.*]])
+; CHECK-NEXT:    [[SETLEN:%.*]] = zext i32 [[LEN]] to i64
+; CHECK-NEXT:    [[CPYLEN:%.*]] = and i64 [[SETLEN]], 65536
+; CHECK-NEXT:    call void @llvm.memcpy.p0i8.p0i8.i64(i8* [[X]], i8* [[A:%.*]], i64 [[CPYLEN]], i32 1, i1 false)
+; CHECK-NEXT:    ret i8* [[X]]
+;
+bb0:
+  %x = call i8* @malloc(i32 %len)
+  %setlen = zext i32 %len to i64
+  call void @llvm.memset.p0i8.i64(i8* %x, i8 0, i64 %setlen, i32 1, i1 false)
+  %cpylen = and i64 %setlen, 65536
+  call void @llvm.memcpy.p0i8.p0i8.i64(i8* %x, i8* %a, i64 %cpylen, i32 1, i1 false)
+  ret i8* %x
+}
