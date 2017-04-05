@@ -214,7 +214,7 @@ bool isCriticalEdge(const BasicBlock &From, const BasicBlock &To) {
 
 bool criticalSucc(const BasicBlock &LBlock, const BasicBlock &Succ) {
   assert(LBlock.getTerminator()->getNumSuccessors() > 1 &&
-         "Expected From to be a lambda block.");
+         "Expected LBlock to be a lambda block.");
   return isCriticalEdge(LBlock, Succ);
 }
 
