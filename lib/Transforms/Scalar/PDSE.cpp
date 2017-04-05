@@ -980,20 +980,14 @@ struct PDSE {
         // def SCC, because such a phi is indexed by the SCC.
         for (scc_iterator<const Instruction *> S = scc_begin(Def); !S.isAtEnd();
              ++S)
-          if (S->size() > 1)
-            for (const Instruction *I : *S)
-              if (auto *PhiFound = dyn_cast<PHINode>(I)) {
-                const BasicBlock *PhiBlock = PhiFound->getParent();
-                if (Blocks[PhiBlock].KilledThisBlock.empty() ||
-                    Blocks[PhiBlock].KilledThisBlock.back() != Idx) {
-                  DEBUG(dbgs() << "Def " << *Def
-                               << " belongs to an SCC that contains: "
-                               << *PhiFound << "\nLaying an SCC kill at "
-                               << PhiFound->getParent()->getName() << " for "
-                               << Worklist[Idx] << "\n");
-                  Blocks[PhiBlock].KilledThisBlock.push_back(Idx);
-                }
-              }
+          if (S->size() > 1) {
+            DEBUG(dbgs()
+                  << "Pointer def for class " << Idx << " [" << *Def
+                  << "] is part of an SCC. Laying a start-of-block kill at "
+                  << Def->getParent()->getName() << "\n");
+            Blocks[Def->getParent()].KilledThisBlock.push_back(Idx);
+            break;
+          }
     }
   }
 

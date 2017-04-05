@@ -926,9 +926,9 @@ define void @defined_by_inductive(i8* %a) {
 ; CHECK:       bb3:
 ; CHECK-NEXT:    [[OFFSET:%.*]] = phi i8 [ 0, [[BB1]] ], [ [[R]], [[BB2]] ]
 ; CHECK-NEXT:    [[LOC:%.*]] = getelementptr i8, i8* [[A:%.*]], i8 [[OFFSET]]
+; CHECK-NEXT:    store i8 [[OFFSET]], i8* [[LOC]]
 ; CHECK-NEXT:    br i1 undef, label [[BB1]], label [[BB4:%.*]]
 ; CHECK:       bb4:
-; CHECK-NEXT:    store i8 [[OFFSET]], i8* [[LOC]]
 ; CHECK-NEXT:    ret void
 ;
 bb0:
