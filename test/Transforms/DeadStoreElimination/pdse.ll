@@ -907,7 +907,8 @@ bb5:
   ret void
 }
 
-; Calling `free` equivalent to a DeadOnExit occurrence.
+; Calling `free` equivalent to a DeadOnExit occurrence. TODO: Treat it instead
+; like a volatile real occurrence that `!canDSE()`.
 define void @test_free(i1 %br0) {
 ; CHECK-LABEL: @test_free(
 ; CHECK-NEXT:  bb0:
@@ -1103,6 +1104,7 @@ bb2:
   ret void
 }
 
+; Writes to memory of unknown size should not eliminate or be eliminated.
 define i8* @unknown_memory_location_size(i32 %len, i8* %a) {
 ; CHECK-LABEL: @unknown_memory_location_size(
 ; CHECK-NEXT:  bb0:
