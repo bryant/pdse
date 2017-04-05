@@ -9,6 +9,8 @@ declare void @llvm.memmove.p0i8.p0i8.i64(i8*, i8*, i64, i32, i1)
 declare void @llvm.memset.p0i8.i64(i8*, i8, i64, i32, i1)
 declare i32 @personality(...)
 declare i64 @f(i64*)
+declare void @llvm.lifetime.end(i64, i8*)
+declare void @llvm.lifetime.start(i64, i8*)
 
 ; Example from Figure 10 of https://doi.org/10.1145/277650.277659 . Note how the
 ; bb3 loop-invariant store is sunk out of the loop.
@@ -1122,4 +1124,40 @@ bb0:
   %cpylen = and i64 %setlen, 65536
   call void @llvm.memcpy.p0i8.p0i8.i64(i8* %x, i8* %a, i64 %cpylen, i32 1, i1 false)
   ret i8* %x
+}
+
+; TODO: Treat lifetime_end like a volatile real occurrence -- it can eliminate
+; any exposed must-aliasing store post-dommed by it, but should not be subject
+; to elimination or PRE insertion.
+define void @lifetime_end_test(i8* %a, i1 %br0) {
+; CHECK-LABEL: @lifetime_end_test(
+; CHECK-NEXT:  bb0:
+; CHECK-NEXT:    call void @llvm.lifetime.start(i64 1, i8* nonnull [[A:%.*]])
+; CHECK-NEXT:    store i8 23, i8* [[A]]
+; CHECK-NEXT:    call void @llvm.lifetime.end(i64 1, i8* nonnull [[A]])
+; CHECK-NEXT:    call void @llvm.lifetime.start(i64 1, i8* nonnull [[A]])
+; CHECK-NEXT:    store i8 29, i8* [[A]]
+; CHECK-NEXT:    br i1 [[BR0:%.*]], label [[BB1:%.*]], label [[BB2:%.*]]
+; CHECK:       bb1:
+; CHECK-NEXT:    call void @llvm.lifetime.end(i64 1, i8* nonnull [[A]])
+; CHECK-NEXT:    ret void
+; CHECK:       bb2:
+; CHECK-NEXT:    [[TMP:%.*]] = load i8, i8* [[A]]
+; CHECK-NEXT:    call void @llvm.lifetime.end(i64 1, i8* nonnull [[A]])
+; CHECK-NEXT:    ret void
+;
+bb0:
+  call void @llvm.lifetime.start(i64 1, i8* nonnull %a)
+  store i8 23, i8* %a
+  call void @llvm.lifetime.end(i64 1, i8* nonnull %a)
+  call void @llvm.lifetime.start(i64 1, i8* nonnull %a)
+  store i8 29, i8* %a
+  br i1 %br0, label %bb1, label %bb2
+bb1:
+  call void @llvm.lifetime.end(i64 1, i8* nonnull %a)
+  ret void
+bb2:
+  %tmp = load i8, i8* %a
+  call void @llvm.lifetime.end(i64 1, i8* nonnull %a)
+  ret void
 }
