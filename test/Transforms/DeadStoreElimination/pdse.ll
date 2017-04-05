@@ -909,6 +909,45 @@ bb5:
   ret void
 }
 
+; %loc -> phi(bb3) -> phi(bb2) <-> %s
+;                    ^               ^
+;                    +----- SCC -----+
+; No sink, even though the store exists outside of the inner loop.
+define void @defined_by_inductive(i8* %a) {
+; CHECK-LABEL: @defined_by_inductive(
+; CHECK-NEXT:  bb0:
+; CHECK-NEXT:    br label [[BB1:%.*]]
+; CHECK:       bb1:
+; CHECK-NEXT:    br i1 undef, label [[BB2:%.*]], label [[BB3:%.*]]
+; CHECK:       bb2:
+; CHECK-NEXT:    [[R:%.*]] = phi i8 [ 41, [[BB1]] ], [ [[S:%.*]], [[BB2]] ]
+; CHECK-NEXT:    [[S]] = add i8 [[R]], 1
+; CHECK-NEXT:    br i1 undef, label [[BB2]], label [[BB3]]
+; CHECK:       bb3:
+; CHECK-NEXT:    [[OFFSET:%.*]] = phi i8 [ 0, [[BB1]] ], [ [[R]], [[BB2]] ]
+; CHECK-NEXT:    [[LOC:%.*]] = getelementptr i8, i8* [[A:%.*]], i8 [[OFFSET]]
+; CHECK-NEXT:    br i1 undef, label [[BB1]], label [[BB4:%.*]]
+; CHECK:       bb4:
+; CHECK-NEXT:    store i8 [[OFFSET]], i8* [[LOC]]
+; CHECK-NEXT:    ret void
+;
+bb0:
+  br label %bb1
+bb1:
+  br i1 undef, label %bb2, label %bb3
+bb2:
+  %r = phi i8 [41, %bb1] , [%s, %bb2]
+  %s = add i8 %r, 1
+  br i1 undef, label %bb2, label %bb3
+bb3:
+  %offset = phi i8 [ 1024, %bb1 ], [ %r, %bb2 ]
+  %loc = getelementptr i8, i8* %a, i8 %offset
+  store i8 %offset, i8* %loc
+  br i1 undef, label %bb1, label %bb4
+bb4:
+  ret void
+}
+
 ; Calling `free` equivalent to a DeadOnExit occurrence. TODO: Treat it instead
 ; like a volatile real occurrence that `!canDSE()`.
 define void @test_free(i1 %br0) {
