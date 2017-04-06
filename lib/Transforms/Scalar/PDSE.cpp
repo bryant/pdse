@@ -197,10 +197,10 @@ struct RealOcc final : public Occurrence {
     return Class = Class_;
   }
 
-  raw_ostream &print(raw_ostream &O) const {
-    return ID ? (O << "Real @ " << Inst->getParent()->getName() << " (" << Class
-                   << ") " << *Inst)
-              : (O << "DeadOnExit");
+  friend raw_ostream &operator<<(raw_ostream &O, const RealOcc &R) {
+    return R.ID ? (O << "Real @ " << R.Inst->getParent()->getName() << " ("
+                     << R.Class << ") " << *R.Inst)
+                : (O << "DeadOnExit");
   }
 };
 
@@ -346,12 +346,12 @@ struct LambdaOcc final : public Occurrence {
     if (UsesDefs) {
       O << "\n";
       for (const LambdaOcc::RealUse &Use : Uses)
-        Use.Occ->print(dbgs() << "\tUse: ") << "\n";
+        dbgs() << "\tUse: " << *Use.Occ << "\n";
       for (const LambdaOcc::Operand &Def : Defs)
         if (RealOcc *Occ = Def.hasRealUse())
-          Occ->print(dbgs() << "\tDef: ") << "\n";
+          dbgs() << "\tDef: " << *Occ << "\n";
         else
-          Def.getLambda()->print(dbgs() << "\tDef: ", Worklist) << "\n";
+          Def.getLambda()->print(dbgs() << "\tDef: ") << "\n";
       for (const BasicBlock *BB : NullDefs)
         dbgs() << "\tDef: _|_ @ " << BB->getName() << "\n";
     }
@@ -734,7 +734,7 @@ struct PDSE {
   }
 
   void handleRealOcc(RealOcc &Occ, RenameState &S) {
-    DEBUG(Occ.print(dbgs() << "Hit a new occ: ") << "\n");
+    DEBUG(dbgs() << "Hit a new occ: " << Occ << "\n");
     if (!S.live(Occ.Class)) {
       DEBUG(dbgs() << "Setting to new repr of " << Worklist[Occ.Class] << "\n");
       S.States[Occ.Class] = RenameState::Incoming{&Occ};
@@ -800,9 +800,9 @@ struct PDSE {
   }
 
   void dse(RealOcc &Occ, Occurrence &KilledBy) {
-    DEBUG(Occ.print(dbgs() << "DSE-ing ") << "\n");
+    DEBUG(dbgs() << "DSE-ing " << Occ << "\n");
     if (RealOcc *R = KilledBy.isReal())
-      DEBUG(R->print(dbgs() << "\tKilled by ") << "\n");
+      DEBUG(dbgs() << "\tKilled by " << *R << "\n");
     else if (LambdaOcc *L = KilledBy.isLambda())
       DEBUG(L->print(dbgs() << "\tKilled by ") << "\n");
     ++NumStores;
@@ -1013,7 +1013,7 @@ struct PDSE {
             if (II)
               DEBUG(dbgs() << *II << "\n");
             else
-              DEBUG(I.getOcc()->print(dbgs()) << "\n");
+              DEBUG(dbgs() << *I.getOcc() << "\n");
             Worklist[Idx].DefBlocks.insert(&BB);
             break;
           }
