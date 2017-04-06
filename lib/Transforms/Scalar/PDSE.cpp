@@ -348,6 +348,8 @@ struct RedClass {
   bool DeadOnExit;
   std::vector<LambdaOcc *> Lambdas;
   std::vector<Instruction *> StoreTypes;
+  // ^ TODO: store these as realocc* which are representatives of their
+  // subclasses.
 
   DenseMap<std::pair<unsigned, Type *>, SubIdx> Subclasses;
   SmallPtrSet<BasicBlock *, 8> DefBlocks;
@@ -525,6 +527,7 @@ public:
   }
 };
 
+// TODO: Refactor these into member methods of RealOcc.
 Value *getStoreOp(Instruction &I) {
   if (auto *SI = dyn_cast<StoreInst>(&I)) {
     return SI->getValueOperand();
@@ -778,6 +781,8 @@ struct PDSE {
       if (S.live(Idx) && Worklist[Idx].KilledByThrow && I.mayThrow()) {
         kill(Idx, S);
       } else if (CallInst *F = isFreeCall(&I, &TLI)) {
+        // TODO: Perhaps treat free (and lifetime_end) as real occurrences that
+        // !canDSE and getStoreOp == undef.
         if (!S.live(Idx)) {
           DEBUG(dbgs() << "Found free: " << *F << "\n");
           // Top of Idx's stack is _|_, so set `free` to DeadOnExit because
@@ -815,6 +820,8 @@ struct PDSE {
     for (InstOrReal &I : reverse(Blocks[&BB].Insts))
       if (RealOcc *Occ = I.getOcc()) {
         if (Occ->canDSE() && S.exposedRepr(Occ->Class))
+          // TODO: Set Occ's Def to top of stack before tagging for DSE. That
+          // way, a full FRG can be printed out for debug.
           dse(*Occ->Inst);
         else
           handleRealOcc(*Occ, S);
