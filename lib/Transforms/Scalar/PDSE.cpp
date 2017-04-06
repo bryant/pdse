@@ -803,11 +803,14 @@ struct PDSE {
       }
   }
 
-  void dse(Instruction &I) {
-    DEBUG(dbgs() << "DSE-ing " << I << " (" << I.getParent()->getName()
-                 << ")\n");
+  void dse(RealOcc &Occ, Occurrence &KilledBy) {
+    DEBUG(Occ.print(dbgs() << "DSE-ing ") << "\n");
+    if (RealOcc *R = KilledBy.isReal())
+      DEBUG(R->print(dbgs() << "\tKilled by ", Worklist) << "\n");
+    else if (LambdaOcc *L = KilledBy.isLambda())
+      DEBUG(L->print(dbgs() << "\tKilled by ", Worklist) << "\n");
     ++NumStores;
-    DeadStores.push_front(&I);
+    DeadStores.push_front(Occ.Inst);
   }
 
   RenameState renameBlock(BasicBlock &BB, RenameState S) {
@@ -822,7 +825,7 @@ struct PDSE {
         if (Occ->canDSE() && S.exposedRepr(Occ->Class))
           // TODO: Set Occ's Def to top of stack before tagging for DSE. That
           // way, a full FRG can be printed out for debug.
-          dse(*Occ->Inst);
+          dse(*Occ, *S.States[Occ->Class].ReprOcc);
         else
           handleRealOcc(*Occ, S);
       } else
@@ -961,7 +964,7 @@ struct PDSE {
                                             getWriteLoc(Use.getInst()));
                 if (Use.Occ->canDSE()) {
                   ++NumPartialReds;
-                  dse(Use.getInst());
+                  dse(*Use.Occ, *L);
                 }
               }
             }
