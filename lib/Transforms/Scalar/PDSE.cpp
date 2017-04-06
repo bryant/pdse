@@ -463,15 +463,16 @@ public:
   }
 };
 
+// TODO: move these back into class def.
 raw_ostream &RealOcc::print(raw_ostream &O, ArrayRef<RedClass> Worklist) const {
-  return ID ? (O << "Real @ " << Inst->getParent()->getName() << " ("
-                 << Worklist[Class] << ") " << *Inst)
+  return ID ? (O << "Real @ " << Inst->getParent()->getName() << " (" << Class
+                 << ") " << *Inst)
             : (O << "DeadOnExit");
 }
 
 raw_ostream &LambdaOcc::print(raw_ostream &O, ArrayRef<RedClass> Worklist,
                               bool UsesDefs, SubIdx *Sub) const {
-  O << "Lambda @ " << Block->getName() << " (" << Worklist[Class] << ")";
+  O << "Lambda @ " << Block->getName() << " (" << Class << ")";
   if (Sub)
     dbgs() << " [" << (upSafe(*Sub) ? "U " : "!U ")
            << (canBeAnt(*Sub) ? "C " : "!C ") << (earlier(*Sub) ? "E " : "!E ")
