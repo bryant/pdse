@@ -197,7 +197,11 @@ struct RealOcc final : public Occurrence {
     return Class = Class_;
   }
 
-  raw_ostream &print(raw_ostream &, ArrayRef<RedClass>) const;
+  raw_ostream &print(raw_ostream &O) const {
+    return ID ? (O << "Real @ " << Inst->getParent()->getName() << " (" << Class
+                   << ") " << *Inst)
+              : (O << "DeadOnExit");
+  }
 };
 
 Value *getStoreOp(Instruction &);
@@ -331,8 +335,28 @@ struct LambdaOcc final : public Occurrence {
     return Flags[Sub].CanBeAnt && !Flags[Sub].Earlier;
   }
 
-  raw_ostream &print(raw_ostream &, ArrayRef<RedClass>, bool = false,
-                     SubIdx * = nullptr) const;
+  raw_ostream &print(raw_ostream &O, bool UsesDefs = false,
+                     SubIdx *Sub = nullptr) const {
+    O << "Lambda @ " << Block->getName() << " (" << Class << ")";
+    if (Sub)
+      dbgs() << " [" << (upSafe(*Sub) ? "U " : "!U ")
+             << (canBeAnt(*Sub) ? "C " : "!C ")
+             << (earlier(*Sub) ? "E " : "!E ") << (willBeAnt(*Sub) ? "W" : "!W")
+             << "]";
+    if (UsesDefs) {
+      O << "\n";
+      for (const LambdaOcc::RealUse &Use : Uses)
+        Use.Occ->print(dbgs() << "\tUse: ") << "\n";
+      for (const LambdaOcc::Operand &Def : Defs)
+        if (RealOcc *Occ = Def.hasRealUse())
+          Occ->print(dbgs() << "\tDef: ") << "\n";
+        else
+          Def.getLambda()->print(dbgs() << "\tDef: ", Worklist) << "\n";
+      for (const BasicBlock *BB : NullDefs)
+        dbgs() << "\tDef: _|_ @ " << BB->getName() << "\n";
+    }
+    return O;
+  }
 };
 
 // Factored redundancy graph representation for each maximal group of
@@ -462,35 +486,6 @@ public:
     return O << *Class.Loc.Ptr << " x " << Class.Loc.Size;
   }
 };
-
-// TODO: move these back into class def.
-raw_ostream &RealOcc::print(raw_ostream &O, ArrayRef<RedClass> Worklist) const {
-  return ID ? (O << "Real @ " << Inst->getParent()->getName() << " (" << Class
-                 << ") " << *Inst)
-            : (O << "DeadOnExit");
-}
-
-raw_ostream &LambdaOcc::print(raw_ostream &O, ArrayRef<RedClass> Worklist,
-                              bool UsesDefs, SubIdx *Sub) const {
-  O << "Lambda @ " << Block->getName() << " (" << Class << ")";
-  if (Sub)
-    dbgs() << " [" << (upSafe(*Sub) ? "U " : "!U ")
-           << (canBeAnt(*Sub) ? "C " : "!C ") << (earlier(*Sub) ? "E " : "!E ")
-           << (willBeAnt(*Sub) ? "W" : "!W") << "]";
-  if (UsesDefs) {
-    O << "\n";
-    for (const LambdaOcc::RealUse &Use : Uses)
-      Use.Occ->print(dbgs() << "\tUse: ", Worklist) << "\n";
-    for (const LambdaOcc::Operand &Def : Defs)
-      if (RealOcc *Occ = Def.hasRealUse())
-        Occ->print(dbgs() << "\tDef: ", Worklist) << "\n";
-      else
-        Def.getLambda()->print(dbgs() << "\tDef: ", Worklist) << "\n";
-    for (const BasicBlock *BB : NullDefs)
-      dbgs() << "\tDef: _|_ @ " << BB->getName() << "\n";
-  }
-  return O;
-}
 
 class EscapeTracker {
   const DataLayout &DL;
@@ -727,7 +722,7 @@ struct PDSE {
 
   void updateUpSafety(RedIdx Idx, RenameState &S) {
     if (LambdaOcc *L = S.exposedLambda(Idx)) {
-      DEBUG(L->print(dbgs() << "Setting up-unsafe: ", Worklist) << "\n");
+      DEBUG(L->print(dbgs() << "Setting up-unsafe: ") << "\n");
       L->resetUpSafe();
     }
   }
@@ -739,7 +734,7 @@ struct PDSE {
   }
 
   void handleRealOcc(RealOcc &Occ, RenameState &S) {
-    DEBUG(Occ.print(dbgs() << "Hit a new occ: ", Worklist) << "\n");
+    DEBUG(Occ.print(dbgs() << "Hit a new occ: ") << "\n");
     if (!S.live(Occ.Class)) {
       DEBUG(dbgs() << "Setting to new repr of " << Worklist[Occ.Class] << "\n");
       S.States[Occ.Class] = RenameState::Incoming{&Occ};
@@ -807,9 +802,9 @@ struct PDSE {
   void dse(RealOcc &Occ, Occurrence &KilledBy) {
     DEBUG(Occ.print(dbgs() << "DSE-ing ") << "\n");
     if (RealOcc *R = KilledBy.isReal())
-      DEBUG(R->print(dbgs() << "\tKilled by ", Worklist) << "\n");
+      DEBUG(R->print(dbgs() << "\tKilled by ") << "\n");
     else if (LambdaOcc *L = KilledBy.isLambda())
-      DEBUG(L->print(dbgs() << "\tKilled by ", Worklist) << "\n");
+      DEBUG(L->print(dbgs() << "\tKilled by ") << "\n");
     ++NumStores;
     DeadStores.push_front(Occ.Inst);
   }
@@ -953,7 +948,7 @@ struct PDSE {
         // Collect all possible store operand definitions that will flow into
         // the inserted stores.
         for (LambdaOcc *L : Class.Lambdas) {
-          DEBUG(L->print(dbgs() << "Analyzing ", Worklist, true, &Sub) << "\n");
+          DEBUG(L->print(dbgs() << "Analyzing ", true, &Sub) << "\n");
           if (L->willBeAnt(Sub))
             for (LambdaOcc::RealUse &Use : L->Uses) {
               if (Use.Occ->Subclass == Sub) {
@@ -973,7 +968,7 @@ struct PDSE {
         for (LambdaOcc *L : Class.Lambdas) {
           if (L->willBeAnt(Sub)) {
             DEBUG(L->print(dbgs() << "Trying to PRE subclass " << Sub << " ",
-                           Worklist, false, &Sub)
+                           false, &Sub)
                   << "\n");
             insertNewOccs(*L, Sub, *Class.StoreTypes[Sub], StoreVals, StorePtrs,
                           SplitBlocks);
@@ -1018,7 +1013,7 @@ struct PDSE {
             if (II)
               DEBUG(dbgs() << *II << "\n");
             else
-              DEBUG(I.getOcc()->print(dbgs(), Worklist) << "\n");
+              DEBUG(I.getOcc()->print(dbgs()) << "\n");
             Worklist[Idx].DefBlocks.insert(&BB);
             break;
           }
@@ -1034,8 +1029,7 @@ struct PDSE {
         Blocks[BB].Lambdas.emplace_back(NextID++, *BB, Idx,
                                         Worklist[Idx].numSubclasses());
         Worklist[Idx].Lambdas.push_back(&Blocks[BB].Lambdas.back());
-        DEBUG(Blocks[BB].Lambdas.back().print(dbgs() << "Inserted ", Worklist)
-              << "\n");
+        DEBUG(Blocks[BB].Lambdas.back().print(dbgs() << "Inserted ") << "\n");
       }
     }
   }
