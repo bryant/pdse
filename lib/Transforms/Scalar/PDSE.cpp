@@ -635,6 +635,7 @@ struct PDSE {
   DenseMap<std::pair<RedIdx, const Instruction *>, ModRefInfo> MRI;
   // ^ Caches calls to AliasAnalysis::getModRefInfo.
   DenseMap<const BasicBlock *, BlockInfo> Blocks;
+  DenseMap<const Instruction *, RealOcc *> InstMap;
   std::forward_list<Instruction *> DeadStores;
   std::vector<RedClass> Worklist;
   RealOcc DeadOnExit;
@@ -1061,6 +1062,9 @@ struct PDSE {
     BasicBlock *BB = Occ.Inst->getParent();
     Worklist[Idx].DefBlocks.insert(BB);
     Blocks[BB].Insts.emplace_back(std::move(Occ));
+
+    RealOcc &R = *Blocks[BB].Insts.back().getOcc();
+    InstMap[R.Inst] = &R;
   }
 
   // Collect real occs and track their basic blocks.
