@@ -126,6 +126,10 @@ template <> struct GraphTraits<const Instruction *> {
 }
 
 namespace {
+raw_ostream &operator<<(raw_ostream &OS, const MemoryLocation &Loc) {
+  return OS << "MemLoc(" << *Loc.Ptr << " x " << Loc.Size << ")";
+}
+
 // Representations of factored redundancy graph elements.
 enum struct OccTy {
   Real,
@@ -483,7 +487,7 @@ public:
   SubIdx numSubclasses() const { return StoreTypes.size(); }
 
   friend raw_ostream &operator<<(raw_ostream &O, const RedClass &Class) {
-    return O << *Class.Loc.Ptr << " x " << Class.Loc.Size;
+    return O << Class.Loc;
   }
 };
 
@@ -649,8 +653,7 @@ struct PDSE {
   RedIdx classifyLoc(const MemoryLocation &Loc,
                      DenseMap<MemoryLocation, RedIdx> &BelongsToClass,
                      EscapeTracker &Tracker) {
-    DEBUG(dbgs() << "Examining store location " << *Loc.Ptr << " x " << Loc.Size
-                 << "\n");
+    DEBUG(dbgs() << "Examining store location " << Loc << "\n");
     if (BelongsToClass.count(Loc))
       return BelongsToClass[Loc];
 
