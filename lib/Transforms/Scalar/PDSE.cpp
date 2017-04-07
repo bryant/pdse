@@ -818,9 +818,9 @@ struct PDSE {
     // Simultaneously rename and DSE in post-order.
     for (InstOrReal &I : reverse(Blocks[&BB].Insts))
       if (RealOcc *Occ = I.getOcc()) {
+        // Occ's defining (representative) occurrence is the top of stack.
+        Occ->Def = S.States[Occ->Class].ReprOcc;
         if (Occ->canDSE() && S.exposedRepr(Occ->Class))
-          // TODO: Set Occ's Def to top of stack before tagging for DSE. That
-          // way, a full FRG can be printed out for debug.
           dse(*Occ, *S.States[Occ->Class].ReprOcc);
         else
           handleRealOcc(*Occ, S);
