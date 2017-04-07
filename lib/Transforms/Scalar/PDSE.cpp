@@ -900,6 +900,7 @@ struct PDSE {
         // Occ's defining (representative) occurrence is the top of stack.
         Occ->Def = S.States[Occ->Class].ReprOcc;
         if (Occ->canDSE() && S.exposedRepr(Occ->Class))
+          // Mark for DSE immediately if fully-post-dommed by another real occ.
           dse(*Occ, *S.States[Occ->Class].ReprOcc);
         else
           handleRealOcc(*Occ, S);
