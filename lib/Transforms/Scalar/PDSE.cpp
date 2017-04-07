@@ -237,15 +237,15 @@ bool cantPREInsert(const BasicBlock &BB) {
 struct LambdaOcc final : public Occurrence {
   struct Operand {
     BasicBlock *Succ;
-    Occurrence *Inner;
+    Occurrence *Def;
 
-    RealOcc *hasRealUse() const { return Inner->isReal(); }
+    RealOcc *hasRealUse() const { return Def->isReal(); }
 
     LambdaOcc *getLambda() const {
-      return Inner->isReal() ? Inner->isReal()->isLambda() : Inner->isLambda();
+      return Def->isReal() ? Def->isReal()->isLambda() : Def->isLambda();
     }
 
-    Operand(BasicBlock &Succ, Occurrence &Inner) : Succ(&Succ), Inner(&Inner) {}
+    Operand(BasicBlock &Succ, Occurrence &Def) : Succ(&Succ), Def(&Def) {}
   };
 
   struct RealUse {
@@ -258,14 +258,14 @@ struct LambdaOcc final : public Occurrence {
     LambdaOcc *L;
     size_t OpIdx;
 
-    Operand &getOp() const { return L->Defs[OpIdx]; }
+    Operand &getOp() const { return L->Operands[OpIdx]; }
 
     LambdaUse(LambdaOcc &L, size_t OpIdx) : L(&L), OpIdx(OpIdx) {}
   };
 
   BasicBlock *Block;
-  std::vector<Operand> Defs;
-  std::vector<BasicBlock *> NullDefs;
+  std::vector<Operand> Operands;
+  std::vector<BasicBlock *> NullOperands;
   std::vector<RealUse> Uses;
   // ^ Real occurrences for which this lambda is representative (a def). Each
   // use will be in the same redundancy class as this lambda (meaning that the
@@ -296,8 +296,9 @@ struct LambdaOcc final : public Occurrence {
 
   LambdaOcc(unsigned ID, BasicBlock &Block, RedIdx Class,
             unsigned NumSubclasses)
-      : Occurrence{ID, Class, OccTy::Lambda}, Block(&Block), Defs(), NullDefs(),
-        Uses(), LambdaUses(), AddedSuccs(), Flags(NumSubclasses) {}
+      : Occurrence{ID, Class, OccTy::Lambda}, Block(&Block), Operands(),
+        NullOperands(), Uses(), LambdaUses(), AddedSuccs(),
+        Flags(NumSubclasses) {}
 
   void addUse(RealOcc &Occ) { Uses.push_back({&Occ}); }
 
@@ -306,11 +307,11 @@ struct LambdaOcc final : public Occurrence {
   LambdaOcc &addOperand(BasicBlock &Succ, Occurrence *ReprOcc) {
     if (!AddedSuccs.count(&Succ)) {
       if (ReprOcc) {
-        Defs.emplace_back(Succ, *ReprOcc);
-        if (LambdaOcc *L = Defs.back().getLambda())
-          L->addUse(*this, Defs.size() - 1);
+        Operands.emplace_back(Succ, *ReprOcc);
+        if (LambdaOcc *L = Operands.back().getLambda())
+          L->addUse(*this, Operands.size() - 1);
       } else
-        NullDefs.push_back(&Succ);
+        NullOperands.push_back(&Succ);
       AddedSuccs.insert(&Succ);
     }
     return *this;
@@ -351,12 +352,12 @@ struct LambdaOcc final : public Occurrence {
       O << "\n";
       for (const LambdaOcc::RealUse &Use : Uses)
         dbgs() << "\tUse: " << *Use.Occ << "\n";
-      for (const LambdaOcc::Operand &Def : Defs)
+      for (const LambdaOcc::Operand &Def : Operands)
         if (RealOcc *Occ = Def.hasRealUse())
           dbgs() << "\tDef: " << *Occ << "\n";
         else
           Def.getLambda()->print(dbgs() << "\tDef: ") << "\n";
-      for (const BasicBlock *BB : NullDefs)
+      for (const BasicBlock *BB : NullOperands)
         dbgs() << "\tDef: _|_ @ " << BB->getName() << "\n";
     }
     return O;
@@ -418,7 +419,7 @@ private:
   RedClass &propagateUpUnsafe(SubIdx Sub) {
     auto push = [&](LambdaOcc &L, LambdaStack &Stack) {
       L.resetUpSafe(Sub);
-      for (LambdaOcc::Operand &Op : L.Defs)
+      for (LambdaOcc::Operand &Op : L.Operands)
         if (!Op.hasRealUse())
           if (LambdaOcc *L = Op.getLambda())
             Stack.push_back(L);
@@ -444,8 +445,8 @@ private:
     };
     auto initialCond = [&](LambdaOcc &L) {
       assert(L.canBeAnt(Sub) && "Expected initial CanBeAnt == true.");
-      return (!L.upSafe(Sub) && !L.NullDefs.empty()) ||
-             any_of(L.NullDefs, [&L](const BasicBlock *Succ) {
+      return (!L.upSafe(Sub) && !L.NullOperands.empty()) ||
+             any_of(L.NullOperands, [&L](const BasicBlock *Succ) {
                return cantPREInsert(*Succ) || (criticalSucc(*L.Block, *Succ) &&
                                                cantSplit(*L.Block, *Succ));
              });
@@ -464,7 +465,8 @@ private:
           Stack.push_back(Use.L);
     };
     auto initialCond = [&](LambdaOcc &L) {
-      return L.earlier(Sub) && any_of(L.Defs, [](const LambdaOcc::Operand &Op) {
+      return L.earlier(Sub) &&
+             any_of(L.Operands, [](const LambdaOcc::Operand &Op) {
                return Op.hasRealUse();
              });
     };
@@ -923,9 +925,9 @@ struct PDSE {
     // - the operand is _|_; or has_real_use is false for the operand, and the
     //   operand is defined by a phi that does not satisfy will_be_avail."
     assert(L.willBeAnt(Sub) && "Can only PRE across willBeAnt lambdas.");
-    for (BasicBlock *Succ : L.NullDefs)
+    for (BasicBlock *Succ : L.NullOperands)
       insert(Succ);
-    for (LambdaOcc::Operand &Op : L.Defs)
+    for (LambdaOcc::Operand &Op : L.Operands)
       if (!Op.hasRealUse() && Op.getLambda() && !Op.getLambda()->willBeAnt(Sub))
         insert(Op.Succ);
   }
