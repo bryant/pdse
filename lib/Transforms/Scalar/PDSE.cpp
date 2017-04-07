@@ -625,6 +625,79 @@ struct BlockInfo {
   std::vector<RedIdx> KilledThisBlock;
 };
 
+struct FRGAnnot final : public AssemblyAnnotationWriter {
+  const std::vector<RedClass> &Worklist;
+  const DenseMap<const BasicBlock *, BlockInfo> &Blocks;
+  const DenseMap<const Instruction *, RealOcc *> &InstMap;
+
+  FRGAnnot(const std::vector<RedClass> &Worklist,
+           const DenseMap<const BasicBlock *, BlockInfo> &Blocks,
+           const DenseMap<const Instruction *, RealOcc *> &InstMap)
+      : Worklist(Worklist), Blocks(Blocks), InstMap(InstMap) {}
+
+  raw_ostream &printID(raw_ostream &OS, const Occurrence &Occ) const {
+    if (Occ.ID == 0)
+      OS << "DeadOnExit";
+    else
+      OS << Occ.Class << "." << Occ.ID;
+    return OS;
+  }
+
+  void emitBasicBlockEndAnnot(const BasicBlock *BB,
+                              formatted_raw_ostream &OS) override {
+    if (Blocks.count(BB)) {
+      for (const LambdaOcc &L : Blocks.find(BB)->second.Lambdas) {
+        assert(L.Operands.size() + L.NullOperands.size() > 1 &&
+               "IDFCalculator computed an unnecessary lambda.");
+
+        auto PrintOperand = [&](const LambdaOcc::Operand &Op) {
+          assert(Op.Def && "_|_ operands belong to NullOperands.");
+          OS << "{" << Op.Succ->getName() << ", ";
+          if (LambdaOcc *OpL = Op.getLambda())
+            printID(OS, *OpL);
+          else {
+            assert(Op.Def->isReal());
+            printID(OS, *Op.Def);
+          }
+          if (Op.hasRealUse())
+            OS << "*";
+          OS << "}";
+        };
+
+        OS << "; Lambda(";
+        for (const LambdaOcc::Operand &Op : L.Operands) {
+          PrintOperand(Op);
+          OS << " ";
+        }
+        for (const BasicBlock *Pred : L.NullOperands)
+          OS << "{" << Pred->getName() << ", _|_} ";
+        printID(OS << ") = ", L) << "\t";
+
+        for (SubIdx Sub = 0; Sub < Worklist[L.Class].numSubclasses();
+             Sub += 1) {
+          OS << "[" << (L.upSafe(Sub) ? " U" : "~U")
+             << (L.canBeAnt(Sub) ? " C" : "~C")
+             << (L.earlier(Sub) ? " E" : "~E")
+             << (L.willBeAnt(Sub) ? " W" : "~W") << "] ";
+        }
+        OS << "\n";
+      }
+    }
+  }
+
+  void emitInstructionAnnot(const Instruction *I,
+                            formatted_raw_ostream &OS) override {
+    if (InstMap.count(I)) {
+      const RealOcc &R = *InstMap.find(I)->second;
+      OS << "; ";
+      if (R.Def) {
+        printID(OS << "Real(", *R.Def) << ")\n";
+      } else
+        printID(OS, R) << " = Repr\n";
+    }
+  }
+};
+
 struct PDSE {
   Function &F;
   AliasAnalysis &AA;
@@ -1094,6 +1167,11 @@ struct PDSE {
     tagSCCIndexedLocs();
     renamePass();
     convertPartialReds();
+
+    if (PrintFRG) {
+      FRGAnnot Annot(Worklist, Blocks, InstMap);
+      F.print(dbgs(), &Annot);
+    }
 
     // DSE.
     while (!DeadStores.empty()) {
