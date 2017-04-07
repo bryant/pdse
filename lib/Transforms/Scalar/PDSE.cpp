@@ -688,12 +688,14 @@ struct FRGAnnot final : public AssemblyAnnotationWriter {
   void emitInstructionAnnot(const Instruction *I,
                             formatted_raw_ostream &OS) override {
     if (InstMap.count(I)) {
-      const RealOcc &R = *InstMap.find(I)->second;
-      OS << "; ";
-      if (R.Def) {
-        printID(OS << "Real(", *R.Def) << ")\n";
+      if (const RealOcc *R = InstMap.find(I)->second) {
+        OS << "; ";
+        if (R->Def) {
+          printID(OS << "Real(", *R->Def) << ")\n";
+        } else
+          printID(OS, *R) << " = Repr\n";
       } else
-        printID(OS, R) << " = Repr\n";
+        OS << "; Inserted\n";
     }
   }
 };
@@ -709,6 +711,7 @@ struct PDSE {
   // ^ Caches calls to AliasAnalysis::getModRefInfo.
   DenseMap<const BasicBlock *, BlockInfo> Blocks;
   DenseMap<const Instruction *, RealOcc *> InstMap;
+  // ^ For instructions that have been inserted by PRE, this is nullptr.
   std::forward_list<Instruction *> DeadStores;
   std::vector<RedClass> Worklist;
   RealOcc DeadOnExit;
@@ -991,6 +994,7 @@ struct PDSE {
         return !isa<PHINode>(&I) && !isa<LandingPadInst>(&I);
       });
       I.insertBefore(&*InsPos);
+      InstMap[&I] = nullptr;
     };
 
     // From Kennedy et al.: "Insert holds for a phi operand if and only if the
