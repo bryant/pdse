@@ -215,28 +215,41 @@ bb4:
   ret void
 }
 
-define void @memcpy_example(i8* %a, i8* noalias %b, i1 %br0) {
+; In order to PRE MemTransferInsts, we would have to ensure that none are sunk
+; below any clobbers to their source memory locations. For the moment, PDSE
+; omits tracking these clobbers and conservatively sticks to full redundancy
+; elimination.
+;
+; In bb0, the memcpy to %a is fully redundant to its counterpart in bb3, whereas
+; the memcpy to %b is only partially redundant to the one in bb2 and should
+; remain untouched.
+define void @memcpy_example(i8* %a, i8* noalias %b, i8* noalias %c, i1 %br0) {
 ; CHECK-LABEL: @memcpy_example(
 ; CHECK-NEXT:  bb0:
+; CHECK-NEXT:    store i8 23, i8* [[C:%.*]]
 ; CHECK-NEXT:    br i1 [[BR0:%.*]], label [[BB1:%.*]], label [[BB2:%.*]]
 ; CHECK:       bb1:
-; CHECK-NEXT:    call void @llvm.memcpy.p0i8.p0i8.i64(i8* [[A:%.*]], i8* [[B:%.*]], i64 64, i32 8, i1 false)
+; CHECK-NEXT:    call void @llvm.memcpy.p0i8.p0i8.i64(i8* [[B:%.*]], i8* [[C]], i64 64, i32 8, i1 false)
 ; CHECK-NEXT:    br label [[BB3:%.*]]
 ; CHECK:       bb2:
-; CHECK-NEXT:    call void @llvm.memcpy.p0i8.p0i8.i64(i8* [[A]], i8* [[B]], i64 64, i32 8, i1 false)
+; CHECK-NEXT:    call void @llvm.memcpy.p0i8.p0i8.i64(i8* [[B]], i8* [[C]], i64 64, i32 8, i1 false)
 ; CHECK-NEXT:    br label [[BB3]]
 ; CHECK:       bb3:
+; CHECK-NEXT:    call void @llvm.memcpy.p0i8.p0i8.i64(i8* [[A:%.*]], i8* [[B]], i64 64, i32 8, i1 false)
 ; CHECK-NEXT:    ret void
 ;
 bb0:
   call void @llvm.memcpy.p0i8.p0i8.i64(i8* %a, i8* %b, i64 64, i32 8, i1 false)
+  call void @llvm.memcpy.p0i8.p0i8.i64(i8* %b, i8* %c, i64 64, i32 8, i1 false)
+  store i8 23, i8* %c  ; Causes PRE of memcpy to %b to be unsafe.
   br i1 %br0, label %bb1, label %bb2
 bb1:
-  call void @llvm.memcpy.p0i8.p0i8.i64(i8* %a, i8* %b, i64 64, i32 8, i1 false)
   br label %bb3
 bb2:
+  call void @llvm.memcpy.p0i8.p0i8.i64(i8* %b, i8* %c, i64 64, i32 8, i1 false)
   br label %bb3
 bb3:
+  call void @llvm.memcpy.p0i8.p0i8.i64(i8* %a, i8* %b, i64 64, i32 8, i1 false)
   ret void
 }
 
