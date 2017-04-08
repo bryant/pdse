@@ -691,7 +691,11 @@ struct FRGAnnot final : public AssemblyAnnotationWriter {
       if (const RealOcc *R = InstMap.find(I)->second) {
         OS << "; ";
         if (R->Def) {
-          printID(OS << "Real(", *R->Def) << ")\n";
+          OS << "Use(";
+          if (R->Def->isReal() && R->Def->isReal()->Def)
+            printID(OS, *R->Def->isReal()->Def) << ")\n";
+          else
+            printID(OS, *R->Def) << ")\n";
         } else
           printID(OS, *R) << " = Repr\n";
       } else
