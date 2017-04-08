@@ -1174,6 +1174,18 @@ struct PDSE {
     convertPartialReds();
 
     if (PrintFRG) {
+      for (RedIdx Idx = 0; Idx < Worklist.size(); Idx += 1) {
+        dbgs() << "Class " << Idx << ": " << Worklist[Idx].Loc
+               << "\n\tOverwrites:";
+        for (RedIdx Ov : Worklist[Idx].Overwrites)
+          dbgs() << " " << Ov;
+        dbgs() << "\n\tInterferes:";
+        for (RedIdx Intf : Worklist[Idx].Interferes)
+          dbgs() << " " << Intf;
+        dbgs() << "\n\tKilledByThrow: " << Worklist[Idx].KilledByThrow
+               << ", DeadOnExit: " << Worklist[Idx].DeadOnExit << "\n";
+      }
+
       FRGAnnot Annot(Worklist, Blocks, InstMap);
       F.print(dbgs(), &Annot);
     }
