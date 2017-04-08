@@ -995,6 +995,8 @@ struct PDSE {
       });
       I.insertBefore(&*InsPos);
       InstMap[&I] = nullptr;
+      DEBUG(dbgs() << "PRE inserted " << I << " @ " << I.getParent()->getName()
+                   << "\n");
     };
 
     // From Kennedy et al.: "Insert holds for a phi operand if and only if the
