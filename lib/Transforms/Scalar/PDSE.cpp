@@ -1095,11 +1095,6 @@ struct PDSE {
               (I.getOcc() && I.getOcc()->KillLoc.Ptr &&
                AA.alias(Worklist[Idx].Loc, I.getOcc()->KillLoc) != NoAlias) ||
               (II && getModRefInfo(Idx, *II) & MRI_Ref)) {
-            DEBUG(dbgs() << "Found kill for " << Worklist[Idx] << ": ");
-            if (II)
-              DEBUG(dbgs() << *II << "\n");
-            else
-              DEBUG(dbgs() << *I.getOcc() << "\n");
             Worklist[Idx].DefBlocks.insert(&BB);
             break;
           }
@@ -1115,7 +1110,6 @@ struct PDSE {
         Blocks[BB].Lambdas.emplace_back(NextID++, *BB, Idx,
                                         Worklist[Idx].numSubclasses());
         Worklist[Idx].Lambdas.push_back(&Blocks[BB].Lambdas.back());
-        DEBUG(Blocks[BB].Lambdas.back().print(dbgs() << "Inserted ") << "\n");
       }
     }
   }
