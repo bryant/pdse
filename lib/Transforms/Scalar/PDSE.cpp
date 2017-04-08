@@ -1186,6 +1186,7 @@ struct PDSE {
                << ", DeadOnExit: " << Worklist[Idx].DeadOnExit << "\n";
       }
 
+      dbgs() << "Factored redundancy graph for " << F.getName() << ":\n";
       FRGAnnot Annot(Worklist, Blocks, InstMap);
       F.print(dbgs(), &Annot);
     }
