@@ -248,12 +248,6 @@ struct LambdaOcc final : public Occurrence {
     Operand(BasicBlock &Succ, Occurrence &Def) : Succ(&Succ), Def(&Def) {}
   };
 
-  struct RealUse {
-    RealOcc *Occ;
-
-    Instruction &getInst() const { return *Occ->Inst; }
-  };
-
   struct LambdaUse {
     LambdaOcc *L;
     size_t OpIdx;
@@ -266,7 +260,7 @@ struct LambdaOcc final : public Occurrence {
   BasicBlock *Block;
   std::vector<Operand> Operands;
   std::vector<BasicBlock *> NullOperands;
-  std::vector<RealUse> Uses;
+  std::vector<RealOcc *> Uses;
   // ^ Real occurrences for which this lambda is representative (a def). Each
   // use will be in the same redundancy class as this lambda (meaning that the
   // stores they represent are same-sized and must-alias), but can have
@@ -350,8 +344,8 @@ struct LambdaOcc final : public Occurrence {
              << "]";
     if (UsesDefs) {
       O << "\n";
-      for (const LambdaOcc::RealUse &Use : Uses)
-        dbgs() << "\tUse: " << *Use.Occ << "\n";
+      for (const RealOcc *Use : Uses)
+        dbgs() << "\tUse: " << *Use << "\n";
       for (const LambdaOcc::Operand &Def : Operands)
         if (RealOcc *Occ = Def.hasRealUse())
           dbgs() << "\tDef: " << *Occ << "\n";
@@ -1040,17 +1034,17 @@ struct PDSE {
         for (LambdaOcc *L : Class.Lambdas) {
           DEBUG(L->print(dbgs() << "Analyzing ", true, &Sub) << "\n");
           if (L->willBeAnt(Sub))
-            for (LambdaOcc::RealUse &Use : L->Uses) {
-              if (Use.Occ->Subclass == Sub) {
-                DEBUG(dbgs() << "Including " << *getStoreOp(Use.getInst())
+            for (RealOcc *Use : L->Uses) {
+              if (Use->Subclass == Sub) {
+                DEBUG(dbgs() << "Including " << *getStoreOp(*Use->Inst)
                              << "\n");
-                StoreVals.AddAvailableValue(Use.getInst().getParent(),
-                                            getStoreOp(Use.getInst()));
-                StorePtrs.AddAvailableValue(Use.getInst().getParent(),
-                                            getWriteLoc(Use.getInst()));
-                if (Use.Occ->canDSE()) {
+                StoreVals.AddAvailableValue(Use->Inst->getParent(),
+                                            getStoreOp(*Use->Inst));
+                StorePtrs.AddAvailableValue(Use->Inst->getParent(),
+                                            getWriteLoc(*Use->Inst));
+                if (Use->canDSE()) {
                   ++NumPartialReds;
-                  dse(*Use.Occ, *L);
+                  dse(*Use, *L);
                 }
               }
             }
