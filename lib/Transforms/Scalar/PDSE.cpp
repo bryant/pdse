@@ -370,9 +370,7 @@ struct RedClass {
   bool KilledByThrow;
   bool DeadOnExit;
   std::vector<LambdaOcc *> Lambdas;
-  std::vector<Instruction *> Subclasses;
-  // ^ TODO: store these as realocc* which are representatives of their
-  // ToSubclass.
+  std::vector<RealOcc *> Subclasses;
 
   DenseMap<std::pair<unsigned, Type *>, SubIdx> ToSubclass;
   SmallPtrSet<BasicBlock *, 8> DefBlocks;
@@ -966,11 +964,11 @@ struct PDSE {
   using SplitEdgeMap =
       DenseMap<std::pair<BasicBlock *, BasicBlock *>, BasicBlock *>;
 
-  void insertNewOccs(LambdaOcc &L, SubIdx Sub, Instruction &Ins,
+  void insertNewOccs(LambdaOcc &L, SubIdx Sub, RealOcc &Ins,
                      SSAUpdater &StoreVals, SSAUpdater &StorePtrs,
                      SplitEdgeMap &SplitBlocks) {
     auto insert = [&](BasicBlock *Succ) {
-      Instruction &I = *Ins.clone();
+      Instruction &I = *Ins.Inst->clone();
       setStoreOp(I, *StoreVals.GetValueAtEndOfBlock(L.Block));
       setWriteLoc(I, *StorePtrs.GetValueAtEndOfBlock(L.Block));
 
@@ -1022,12 +1020,14 @@ struct PDSE {
       SSAUpdater StoreVals;
       SSAUpdater StorePtrs;
       for (SubIdx Sub = 0; Sub < Class.numSubclasses(); Sub += 1) {
-        assert(getStoreOp(*Class.Subclasses[Sub]) &&
+        assert(getStoreOp(*Class.Subclasses[Sub]->Inst) &&
                "Expected an analyzable store instruction.");
-        StoreVals.Initialize(getStoreOp(*Class.Subclasses[Sub])->getType(),
-                             Class.Subclasses[Sub]->getName());
-        StorePtrs.Initialize(getWriteLoc(*Class.Subclasses[Sub])->getType(),
-                             Class.Subclasses[Sub]->getName());
+        StoreVals.Initialize(
+            getStoreOp(*Class.Subclasses[Sub]->Inst)->getType(),
+            Class.Subclasses[Sub]->Inst->getName());
+        StorePtrs.Initialize(
+            getWriteLoc(*Class.Subclasses[Sub]->Inst)->getType(),
+            Class.Subclasses[Sub]->Inst->getName());
 
         // Collect all possible store operand definitions that will flow into
         // the inserted stores.
@@ -1113,30 +1113,26 @@ struct PDSE {
   }
 
   void addRealOcc(RealOcc &&Occ, RedIdx Idx) {
-    // ToSubclass are grouped together by identical opcode and store types. For
-    // instance, `store i8*` and `store i1*`, belong to the same RedIdx (they
-    // are same-sized, and assuming that they must-alias) but different
-    // SubIdx.
-    auto Key =
-        std::make_pair(Occ.Inst->getOpcode(), getStoreOp(*Occ.Inst)->getType());
-
-    // This will add a new subclass if `Key` isn't found.
-    auto Inserted =
-        Worklist[Idx].ToSubclass.insert({Key, Worklist[Idx].numSubclasses()});
-    if (Inserted.second)
-      Worklist[Idx].Subclasses.push_back(Occ.Inst);
-    Occ.setClass(Idx, Inserted.first->second);
-    DEBUG(dbgs() << "Added real occ @ " << Occ.Inst->getParent()->getName()
-                 << " " << *Occ.Inst << "\n\tto subclass "
-                 << *Worklist[Idx].Subclasses[Inserted.first->second]
-                 << "\n\tof " << Worklist[Idx] << "\n");
-
     BasicBlock *BB = Occ.Inst->getParent();
     Worklist[Idx].DefBlocks.insert(BB);
     Blocks[BB].Insts.emplace_back(std::move(Occ));
 
     RealOcc &R = *Blocks[BB].Insts.back().getOcc();
     InstMap[R.Inst] = &R;
+    // Subclasses are grouped together by identical opcode and store types. For
+    // instance, `store i8*` and `store i1*`, belong to the same RedIdx (they
+    // are same-sized, and assuming that they must-alias) but different
+    // SubIdx.
+    auto Key =
+        std::make_pair(R.Inst->getOpcode(), getStoreOp(*R.Inst)->getType());
+    // This will add a new subclass if `Key` isn't found.
+    auto Inserted =
+        Worklist[Idx].ToSubclass.insert({Key, Worklist[Idx].numSubclasses()});
+    if (Inserted.second)
+      Worklist[Idx].Subclasses.push_back(&R);
+    R.setClass(Idx, Inserted.first->second);
+    DEBUG(dbgs() << "Added " << R << "\n\tto subclass " << *R.Inst << "\n\tof "
+                 << Worklist[Idx] << "\n");
   }
 
   // Collect real occs and track their basic blocks.
