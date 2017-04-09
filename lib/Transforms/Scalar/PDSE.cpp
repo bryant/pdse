@@ -201,15 +201,83 @@ struct RealOcc final : public Occurrence {
     return Class = Class_;
   }
 
+  Value *getStoreOp() {
+    if (auto *SI = dyn_cast<StoreInst>(Inst)) {
+      return SI->getValueOperand();
+    } else if (auto *MI = dyn_cast<MemSetInst>(Inst)) {
+      return MI->getValue();
+    } else if (auto *MI = dyn_cast<MemTransferInst>(Inst)) {
+      return MI->getRawSource();
+    } else {
+      llvm_unreachable("Unknown real occurrence type.");
+    }
+  }
+
+  Value *getWriteLoc() {
+    if (auto *SI = dyn_cast<StoreInst>(Inst)) {
+      return SI->getPointerOperand();
+    } else if (auto *MI = dyn_cast<MemIntrinsic>(Inst)) {
+      return MI->getRawDest();
+    } else {
+      llvm_unreachable("Unknown real occurrence type.");
+    }
+  }
+
+  static Instruction &setStoreOp(Instruction &I, Value &V) {
+    if (auto *SI = dyn_cast<StoreInst>(&I)) {
+      SI->setOperand(0, &V);
+    } else if (auto *MI = dyn_cast<MemSetInst>(&I)) {
+      MI->setValue(&V);
+    } else if (auto *MI = dyn_cast<MemTransferInst>(&I)) {
+      MI->setSource(&V);
+    } else {
+      llvm_unreachable("Unknown real occurrence type.");
+    }
+    return I;
+  }
+
+  static Instruction &setWriteLoc(Instruction &I, Value &V) {
+    if (auto *SI = dyn_cast<StoreInst>(&I)) {
+      SI->setOperand(1, &V);
+    } else if (auto *MI = dyn_cast<MemIntrinsic>(&I)) {
+      MI->setDest(&V);
+    } else {
+      llvm_unreachable("Unknown real occurrence type.");
+    }
+    return I;
+  }
+
+  // An instruction belongs to the FRG as a real occurrence only if it's at
+  // least capable of causing redundancy in other instructions, i.e., being a
+  // def to some FRG node. TODO: Refactor this with getWriteLoc.
+  static Optional<std::pair<MemoryLocation, RealOcc>>
+  makeRealOcc(Instruction &I, unsigned &NextID) {
+    using std::make_pair;
+    if (auto *SI = dyn_cast<StoreInst>(&I)) {
+      auto Loc = MemoryLocation::get(SI);
+      assert(Loc.Size != MemoryLocation::UnknownSize &&
+             "Expected all stores to have known size.");
+      return make_pair(Loc, RealOcc(NextID++, I));
+    } else if (auto *MI = dyn_cast<MemSetInst>(&I)) {
+      auto Loc = MemoryLocation::getForDest(MI);
+      if (Loc.Size != MemoryLocation::UnknownSize)
+        return make_pair(Loc, RealOcc(NextID++, I));
+    } else if (auto *MI = dyn_cast<MemTransferInst>(&I)) {
+      // memmove, memcpy.
+      auto Loc = MemoryLocation::getForDest(MI);
+      if (Loc.Size != MemoryLocation::UnknownSize)
+        return make_pair(
+            Loc, RealOcc(NextID++, I, MemoryLocation::getForSource(MI)));
+    }
+    return None;
+  }
+
   friend raw_ostream &operator<<(raw_ostream &O, const RealOcc &R) {
     return R.ID ? (O << "Real @ " << R.Inst->getParent()->getName() << " ("
                      << R.Class << ") " << *R.Inst)
                 : (O << "DeadOnExit");
   }
 };
-
-Value *getStoreOp(Instruction &);
-Instruction &setStoreOp(Instruction &, Value &);
 
 bool isCriticalEdge(const BasicBlock &From, const BasicBlock &To) {
   return From.getTerminator()->getNumSuccessors() > 1 && [&]() {
@@ -520,77 +588,6 @@ public:
         IsLocal[&Arg] = true;
   }
 };
-
-// TODO: Refactor these into member methods of RealOcc.
-Value *getStoreOp(Instruction &I) {
-  if (auto *SI = dyn_cast<StoreInst>(&I)) {
-    return SI->getValueOperand();
-  } else if (auto *MI = dyn_cast<MemSetInst>(&I)) {
-    return MI->getValue();
-  } else if (auto *MI = dyn_cast<MemTransferInst>(&I)) {
-    return MI->getRawSource();
-  } else {
-    llvm_unreachable("Unknown real occurrence type.");
-  }
-}
-
-Instruction &setStoreOp(Instruction &I, Value &V) {
-  if (auto *SI = dyn_cast<StoreInst>(&I)) {
-    SI->setOperand(0, &V);
-  } else if (auto *MI = dyn_cast<MemSetInst>(&I)) {
-    MI->setValue(&V);
-  } else if (auto *MI = dyn_cast<MemTransferInst>(&I)) {
-    MI->setSource(&V);
-  } else {
-    llvm_unreachable("Unknown real occurrence type.");
-  }
-  return I;
-}
-
-Value *getWriteLoc(Instruction &I) {
-  if (auto *SI = dyn_cast<StoreInst>(&I)) {
-    return SI->getPointerOperand();
-  } else if (auto *MI = dyn_cast<MemIntrinsic>(&I)) {
-    return MI->getRawDest();
-  } else {
-    llvm_unreachable("Unknown real occurrence type.");
-  }
-}
-
-Instruction &setWriteLoc(Instruction &I, Value &V) {
-  if (auto *SI = dyn_cast<StoreInst>(&I)) {
-    SI->setOperand(1, &V);
-  } else if (auto *MI = dyn_cast<MemIntrinsic>(&I)) {
-    MI->setDest(&V);
-  } else {
-    llvm_unreachable("Unknown real occurrence type.");
-  }
-  return I;
-}
-
-// If Inst has the potential to be a DSE candidate, return its write location
-// and a real occurrence wrapper. TODO: Refactor this with getWriteLoc.
-Optional<std::pair<MemoryLocation, RealOcc>> makeRealOcc(Instruction &I,
-                                                         unsigned &NextID) {
-  using std::make_pair;
-  if (auto *SI = dyn_cast<StoreInst>(&I)) {
-    auto Loc = MemoryLocation::get(SI);
-    assert(Loc.Size != MemoryLocation::UnknownSize &&
-           "Expected all stores to have known size.");
-    return make_pair(Loc, RealOcc(NextID++, I));
-  } else if (auto *MI = dyn_cast<MemSetInst>(&I)) {
-    auto Loc = MemoryLocation::getForDest(MI);
-    if (Loc.Size != MemoryLocation::UnknownSize)
-      return make_pair(Loc, RealOcc(NextID++, I));
-  } else if (auto *MI = dyn_cast<MemTransferInst>(&I)) {
-    // memmove, memcpy.
-    auto Loc = MemoryLocation::getForDest(MI);
-    if (Loc.Size != MemoryLocation::UnknownSize)
-      return make_pair(Loc,
-                       RealOcc(NextID++, I, MemoryLocation::getForSource(MI)));
-  }
-  return None;
-}
 
 class InstOrReal {
   union {
@@ -969,8 +966,8 @@ struct PDSE {
                      SplitEdgeMap &SplitBlocks) {
     auto insert = [&](BasicBlock *Succ) {
       Instruction &I = *Ins.Inst->clone();
-      setStoreOp(I, *StoreVals.GetValueAtEndOfBlock(L.Block));
-      setWriteLoc(I, *StorePtrs.GetValueAtEndOfBlock(L.Block));
+      RealOcc::setStoreOp(I, *StoreVals.GetValueAtEndOfBlock(L.Block));
+      RealOcc::setWriteLoc(I, *StorePtrs.GetValueAtEndOfBlock(L.Block));
 
       if (SplitBlocks.count({L.Block, Succ}))
         Succ = SplitBlocks[{L.Block, Succ}];
@@ -1020,14 +1017,10 @@ struct PDSE {
       SSAUpdater StoreVals;
       SSAUpdater StorePtrs;
       for (SubIdx Sub = 0; Sub < Class.numSubclasses(); Sub += 1) {
-        assert(getStoreOp(*Class.Subclasses[Sub]->Inst) &&
-               "Expected an analyzable store instruction.");
-        StoreVals.Initialize(
-            getStoreOp(*Class.Subclasses[Sub]->Inst)->getType(),
-            Class.Subclasses[Sub]->Inst->getName());
-        StorePtrs.Initialize(
-            getWriteLoc(*Class.Subclasses[Sub]->Inst)->getType(),
-            Class.Subclasses[Sub]->Inst->getName());
+        StoreVals.Initialize(Class.Subclasses[Sub]->getStoreOp()->getType(),
+                             Class.Subclasses[Sub]->Inst->getName());
+        StorePtrs.Initialize(Class.Subclasses[Sub]->getWriteLoc()->getType(),
+                             Class.Subclasses[Sub]->Inst->getName());
 
         // Collect all possible store operand definitions that will flow into
         // the inserted stores.
@@ -1036,12 +1029,11 @@ struct PDSE {
           if (L->willBeAnt(Sub))
             for (RealOcc *Use : L->Uses) {
               if (Use->Subclass == Sub) {
-                DEBUG(dbgs() << "Including " << *getStoreOp(*Use->Inst)
-                             << "\n");
+                DEBUG(dbgs() << "Including " << *Use->getStoreOp() << "\n");
                 StoreVals.AddAvailableValue(Use->Inst->getParent(),
-                                            getStoreOp(*Use->Inst));
+                                            Use->getStoreOp());
                 StorePtrs.AddAvailableValue(Use->Inst->getParent(),
-                                            getWriteLoc(*Use->Inst));
+                                            Use->getWriteLoc());
                 if (Use->canDSE()) {
                   ++NumPartialReds;
                   dse(*Use, *L);
@@ -1123,8 +1115,7 @@ struct PDSE {
     // instance, `store i8*` and `store i1*`, belong to the same RedIdx (they
     // are same-sized, and assuming that they must-alias) but different
     // SubIdx.
-    auto Key =
-        std::make_pair(R.Inst->getOpcode(), getStoreOp(*R.Inst)->getType());
+    auto Key = std::make_pair(R.Inst->getOpcode(), R.getStoreOp()->getType());
     // This will add a new subclass if `Key` isn't found.
     auto Inserted =
         Worklist[Idx].ToSubclass.insert({Key, Worklist[Idx].numSubclasses()});
@@ -1142,7 +1133,7 @@ struct PDSE {
 
     for (BasicBlock &BB : F)
       for (Instruction &I : BB)
-        if (auto LocOcc = makeRealOcc(I, NextID)) {
+        if (auto LocOcc = RealOcc::makeRealOcc(I, NextID)) {
           // Found a real occ for this instruction. Figure out which redundancy
           // class its store locbelongs to.
           RedIdx Idx = classifyLoc(LocOcc->first, BelongsToClass, Tracker);
