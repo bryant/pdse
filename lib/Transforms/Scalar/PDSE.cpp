@@ -370,16 +370,16 @@ struct RedClass {
   bool KilledByThrow;
   bool DeadOnExit;
   std::vector<LambdaOcc *> Lambdas;
-  std::vector<Instruction *> StoreTypes;
+  std::vector<Instruction *> Subclasses;
   // ^ TODO: store these as realocc* which are representatives of their
-  // subclasses.
+  // ToSubclass.
 
-  DenseMap<std::pair<unsigned, Type *>, SubIdx> Subclasses;
+  DenseMap<std::pair<unsigned, Type *>, SubIdx> ToSubclass;
   SmallPtrSet<BasicBlock *, 8> DefBlocks;
 
   RedClass(MemoryLocation Loc, bool KilledByThrow, bool DeadOnExit)
       : Loc(std::move(Loc)), KilledByThrow(KilledByThrow),
-        DeadOnExit(DeadOnExit), Lambdas(), StoreTypes(), Subclasses(),
+        DeadOnExit(DeadOnExit), Lambdas(), Subclasses(), ToSubclass(),
         DefBlocks() {}
 
 private:
@@ -480,7 +480,7 @@ public:
     return *this;
   }
 
-  SubIdx numSubclasses() const { return StoreTypes.size(); }
+  SubIdx numSubclasses() const { return Subclasses.size(); }
 
   friend raw_ostream &operator<<(raw_ostream &O, const RedClass &Class) {
     return O << Class.Loc;
@@ -1022,12 +1022,12 @@ struct PDSE {
       SSAUpdater StoreVals;
       SSAUpdater StorePtrs;
       for (SubIdx Sub = 0; Sub < Class.numSubclasses(); Sub += 1) {
-        assert(getStoreOp(*Class.StoreTypes[Sub]) &&
+        assert(getStoreOp(*Class.Subclasses[Sub]) &&
                "Expected an analyzable store instruction.");
-        StoreVals.Initialize(getStoreOp(*Class.StoreTypes[Sub])->getType(),
-                             Class.StoreTypes[Sub]->getName());
-        StorePtrs.Initialize(getWriteLoc(*Class.StoreTypes[Sub])->getType(),
-                             Class.StoreTypes[Sub]->getName());
+        StoreVals.Initialize(getStoreOp(*Class.Subclasses[Sub])->getType(),
+                             Class.Subclasses[Sub]->getName());
+        StorePtrs.Initialize(getWriteLoc(*Class.Subclasses[Sub])->getType(),
+                             Class.Subclasses[Sub]->getName());
 
         // Collect all possible store operand definitions that will flow into
         // the inserted stores.
@@ -1054,7 +1054,7 @@ struct PDSE {
             DEBUG(L->print(dbgs() << "Trying to PRE subclass " << Sub << " ",
                            false, &Sub)
                   << "\n");
-            insertNewOccs(*L, Sub, *Class.StoreTypes[Sub], StoreVals, StorePtrs,
+            insertNewOccs(*L, Sub, *Class.Subclasses[Sub], StoreVals, StorePtrs,
                           SplitBlocks);
           }
         }
@@ -1113,7 +1113,7 @@ struct PDSE {
   }
 
   void addRealOcc(RealOcc &&Occ, RedIdx Idx) {
-    // Subclasses are grouped together by identical opcode and store types. For
+    // ToSubclass are grouped together by identical opcode and store types. For
     // instance, `store i8*` and `store i1*`, belong to the same RedIdx (they
     // are same-sized, and assuming that they must-alias) but different
     // SubIdx.
@@ -1122,13 +1122,13 @@ struct PDSE {
 
     // This will add a new subclass if `Key` isn't found.
     auto Inserted =
-        Worklist[Idx].Subclasses.insert({Key, Worklist[Idx].numSubclasses()});
+        Worklist[Idx].ToSubclass.insert({Key, Worklist[Idx].numSubclasses()});
     if (Inserted.second)
-      Worklist[Idx].StoreTypes.push_back(Occ.Inst);
+      Worklist[Idx].Subclasses.push_back(Occ.Inst);
     Occ.setClass(Idx, Inserted.first->second);
     DEBUG(dbgs() << "Added real occ @ " << Occ.Inst->getParent()->getName()
                  << " " << *Occ.Inst << "\n\tto subclass "
-                 << *Worklist[Idx].StoreTypes[Inserted.first->second]
+                 << *Worklist[Idx].Subclasses[Inserted.first->second]
                  << "\n\tof " << Worklist[Idx] << "\n");
 
     BasicBlock *BB = Occ.Inst->getParent();
