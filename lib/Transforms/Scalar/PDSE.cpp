@@ -186,14 +186,13 @@ struct RealOcc final : public Occurrence {
       : Occurrence{ID, -1u, OccTy::Real}, Subclass(-1u), Inst(&I),
         KillLoc(KillLoc) {}
 
-  bool canDSE() const {
+  bool isRemovable() const {
     if (auto *SI = dyn_cast<StoreInst>(Inst)) {
       return SI->isUnordered();
     } else if (auto *MI = dyn_cast<MemIntrinsic>(Inst)) {
       return !MI->isVolatile();
-    } else {
-      llvm_unreachable("Unknown real occurrence type.");
     }
+    return false;
   }
 
   RedIdx setClass(RedIdx Class_, SubIdx Subclass_) {
@@ -853,7 +852,7 @@ struct PDSE {
         kill(Idx, S);
       } else if (CallInst *F = isFreeCall(&I, &TLI)) {
         // TODO: Perhaps treat free (and lifetime_end) as real occurrences that
-        // !canDSE and getStoreOp == undef.
+        // !isRemovable and getStoreOp == undef.
         if (!S.live(Idx)) {
           DEBUG(dbgs() << "Found free: " << *F << "\n");
           // Top of Idx's stack is _|_, so set `free` to DeadOnExit because
@@ -895,7 +894,7 @@ struct PDSE {
       if (RealOcc *Occ = I.getOcc()) {
         // Occ's defining (representative) occurrence is the top of stack.
         Occ->Def = S.States[Occ->Class].ReprOcc;
-        if (Occ->canDSE() && S.exposedRepr(Occ->Class))
+        if (Occ->isRemovable() && S.exposedRepr(Occ->Class))
           // Mark for DSE immediately if fully-post-dommed by another real occ.
           dse(*Occ, *S.States[Occ->Class].ReprOcc);
         else
@@ -1034,7 +1033,7 @@ struct PDSE {
                                             Use->getStoreOp());
                 StorePtrs.AddAvailableValue(Use->Inst->getParent(),
                                             Use->getWriteLoc());
-                if (Use->canDSE()) {
+                if (Use->isRemovable()) {
                   ++NumPartialReds;
                   dse(*Use, *L);
                 }
