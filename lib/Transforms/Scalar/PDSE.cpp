@@ -208,6 +208,10 @@ public:
     return false;
   }
 
+  // We can't PRE memcpy or memmove instructions without first tracking clobbers
+  // to their read locs.
+  bool canPRE() const { return !isa<MemTransferInst>(Inst) && isRemovable(); }
+
   bool isVolatile() const {
     if (auto *SI = dyn_cast<StoreInst>(Inst)) {
       return SI->isVolatile();
@@ -588,7 +592,8 @@ public:
   RedClass &computeWillBeAnt() {
     if (Lambdas.size() > 0) {
       for (SubIdx Sub = 0; Sub < numSubclasses(); Sub += 1)
-        computeWillBeAnt(Sub);
+        if (Subclasses[Sub]->canPRE())
+          computeWillBeAnt(Sub);
     }
     return *this;
   }
@@ -1070,7 +1075,8 @@ struct PDSE {
       SSAUpdater StoreVals;
       SSAUpdater StorePtrs;
       for (SubIdx Sub = 0; Sub < Class.numSubclasses(); Sub += 1) {
-        if (!DebugCounter::shouldExecute(PartialElimCounter))
+        if (!DebugCounter::shouldExecute(PartialElimCounter) ||
+            !Class.Subclasses[Sub]->canPRE())
           continue;
 
         StoreVals.Initialize(Class.Subclasses[Sub]->getStoreOp()->getType(),
