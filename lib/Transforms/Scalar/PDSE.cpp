@@ -208,12 +208,46 @@ public:
     return false;
   }
 
+  bool isVolatile() const {
+    if (auto *SI = dyn_cast<StoreInst>(Inst)) {
+      return SI->isVolatile();
+    } else if (auto *MI = dyn_cast<MemIntrinsic>(Inst)) {
+      return MI->isVolatile();
+    } else {
+      llvm_unreachable("Unknown real occurrence type.");
+    }
+  }
+
+  enum Ordering {
+    NotAtomic,
+    Unordered,
+    Atomic,
+  };
+
+  static Ordering toOrdering(AtomicOrdering Ord) {
+    switch (Ord) {
+    case AtomicOrdering::NotAtomic:
+      return NotAtomic;
+    case AtomicOrdering::Unordered:
+      return Unordered;
+    default:
+      return Atomic;
+    }
+  }
+
+  Ordering getOrdering() const {
+    if (auto *SI = dyn_cast<StoreInst>(Inst)) {
+      return toOrdering(SI->getOrdering());
+    }
+    return NotAtomic;
+  }
+
   RedIdx setClass(RedIdx Class_, SubIdx Subclass_) {
     Subclass = Subclass_;
     return Class = Class_;
   }
 
-  Value *getStoreOp() {
+  Value *getStoreOp() const {
     if (auto *SI = dyn_cast<StoreInst>(Inst)) {
       return SI->getValueOperand();
     } else if (auto *MI = dyn_cast<MemSetInst>(Inst)) {
@@ -225,7 +259,7 @@ public:
     }
   }
 
-  Value *getWriteLoc() {
+  Value *getWriteLoc() const {
     if (auto *SI = dyn_cast<StoreInst>(Inst)) {
       return SI->getPointerOperand();
     } else if (auto *MI = dyn_cast<MemIntrinsic>(Inst)) {
@@ -451,14 +485,16 @@ struct RedClass {
   bool DeadOnExit;
   std::vector<LambdaOcc *> Lambdas;
   std::vector<RealOcc *> Subclasses;
+  // ^ Real occurrences within a redundancy class are further partitioned into
+  // subclasses that are keyed on opcode, store value type, atomicity, and
+  // volatility. This is needed because different subclasses cannot
+  // interchangebly PRE with one another.
 
-  DenseMap<std::pair<unsigned, Type *>, SubIdx> ToSubclass;
   SmallPtrSet<BasicBlock *, 8> DefBlocks;
 
   RedClass(MemoryLocation Loc, bool KilledByThrow, bool DeadOnExit)
       : Loc(std::move(Loc)), KilledByThrow(KilledByThrow),
-        DeadOnExit(DeadOnExit), Lambdas(), Subclasses(), ToSubclass(),
-        DefBlocks() {}
+        DeadOnExit(DeadOnExit), Lambdas(), Subclasses(), DefBlocks() {}
 
 private:
   using LambdaStack = SmallVector<LambdaOcc *, 16>;
@@ -1124,6 +1160,7 @@ struct PDSE {
     }
   }
 
+  // Add Occ to its bb's list and set its redundancy class and subclass.
   void addRealOcc(RealOcc &&Occ, RedIdx Idx) {
     BasicBlock *BB = Occ.Inst->getParent();
     Worklist[Idx].DefBlocks.insert(BB);
@@ -1131,17 +1168,19 @@ struct PDSE {
 
     RealOcc &R = *Blocks[BB].Insts.back().getOcc();
     InstMap[R.Inst] = &R;
-    // Subclasses are grouped together by identical opcode and store types. For
-    // instance, `store i8*` and `store i1*`, belong to the same RedIdx (they
-    // are same-sized, and assuming that they must-alias) but different
-    // SubIdx.
-    auto Key = std::make_pair(R.Inst->getOpcode(), R.getStoreOp()->getType());
-    // This will add a new subclass if `Key` isn't found.
-    auto Inserted =
-        Worklist[Idx].ToSubclass.insert({Key, Worklist[Idx].numSubclasses()});
-    if (Inserted.second)
+
+    auto SubIt = find_if(Worklist[Idx].Subclasses, [&](const RealOcc *Occ) {
+      return Occ->Inst->getOpcode() == R.Inst->getOpcode() &&
+             Occ->getStoreOp()->getType() == R.getStoreOp()->getType() &&
+             Occ->getOrdering() == R.getOrdering() &&
+             Occ->isVolatile() == R.isVolatile();
+    });
+    if (Worklist[Idx].Subclasses.end() == SubIt) {
+      R.setClass(Idx, Worklist[Idx].Subclasses.size());
       Worklist[Idx].Subclasses.push_back(&R);
-    R.setClass(Idx, Inserted.first->second);
+    } else
+      R.setClass(Idx, std::distance(Worklist[Idx].Subclasses.begin(), SubIt));
+
     DEBUG(dbgs() << "Added " << R << "\n\tto subclass " << *R.Inst << "\n\tof "
                  << Worklist[Idx] << "\n");
   }
@@ -1155,7 +1194,7 @@ struct PDSE {
       for (Instruction &I : BB)
         if (auto LocOcc = RealOcc::makeRealOcc(I, NextID)) {
           // Found a real occ for this instruction. Figure out which redundancy
-          // class its store locbelongs to.
+          // class its store loc belongs to.
           RedIdx Idx = classifyLoc(LocOcc->first, BelongsToClass, Tracker);
           addRealOcc(std::move(LocOcc->second), Idx);
         } else if (AA.getModRefInfo(&I))
