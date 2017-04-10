@@ -547,11 +547,16 @@ private:
 public:
   RedClass &computeWillBeAnt() {
     if (Lambdas.size() > 0) {
-      DEBUG(dbgs() << "Computing willBeAnt\n");
       for (SubIdx Sub = 0; Sub < numSubclasses(); Sub += 1)
-        propagateUpUnsafe(Sub).computeCanBeAnt(Sub).computeEarlier(Sub);
+        computeWillBeAnt(Sub);
     }
     return *this;
+  }
+
+  RedClass &computeWillBeAnt(SubIdx Sub) {
+    DEBUG(dbgs() << "Computing willBeAnt for class " << Loc << ", subclass "
+                 << *Subclasses[Sub]->Inst << "\n");
+    return propagateUpUnsafe(Sub).computeCanBeAnt(Sub).computeEarlier(Sub);
   }
 
   SubIdx numSubclasses() const { return Subclasses.size(); }
