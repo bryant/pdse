@@ -180,10 +180,11 @@ struct RealOcc final : public Occurrence {
   MemoryLocation KillLoc;
 
   RealOcc(unsigned ID, Instruction &I)
-      : Occurrence{ID, -1u, OccTy::Real}, Subclass(-1u), Inst(&I), KillLoc() {}
+      : Occurrence{ID, -1u, OccTy::Real}, Subclass(-1u), Inst(&I), Def(nullptr),
+        KillLoc() {}
 
   RealOcc(unsigned ID, Instruction &I, MemoryLocation &&KillLoc)
-      : Occurrence{ID, -1u, OccTy::Real}, Subclass(-1u), Inst(&I),
+      : Occurrence{ID, -1u, OccTy::Real}, Subclass(-1u), Inst(&I), Def(nullptr),
         KillLoc(KillLoc) {}
 
   bool isRemovable() const {
