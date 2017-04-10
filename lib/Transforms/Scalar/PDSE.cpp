@@ -187,6 +187,14 @@ struct RealOcc final : public Occurrence {
       : Occurrence{ID, -1u, OccTy::Real}, Subclass(-1u), Inst(&I), Def(nullptr),
         KillLoc(KillLoc) {}
 
+private:
+  RealOcc(unsigned ID)
+      : Occurrence{ID, -1u, OccTy::Real}, Subclass(-1u), Inst(nullptr),
+        Def(nullptr), KillLoc() {}
+
+public:
+  static RealOcc getDeadOnExit() { return RealOcc(0); }
+
   bool isRemovable() const {
     if (auto *SI = dyn_cast<StoreInst>(Inst)) {
       return SI->isUnordered();
@@ -714,7 +722,7 @@ struct PDSE {
   PDSE(Function &F, AliasAnalysis &AA, PostDominatorTree &PDT,
        const TargetLibraryInfo &TLI)
       : F(F), AA(AA), PDT(PDT), TLI(TLI), NextID(1),
-        DeadOnExit(0, *F.getEntryBlock().getTerminator()) {}
+        DeadOnExit(RealOcc::getDeadOnExit()) {}
 
   ModRefInfo getModRefInfo(RedIdx A, const Instruction &I) {
     auto Key = std::make_pair(A, &I);
