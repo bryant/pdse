@@ -632,9 +632,10 @@ define void @kills_own_occ_class(i8* %a, i8* %b) {
   ret void
 }
 
-; i1* %tmp and i8* %arg belong to the same redundancy class, but have different
-; types. So subclasses need to be grouped by the store value operand type in
-; addition to opcode.
+; i1* %tmp and i8* %arg belong to the same redundancy class because they
+; must-alias and have the same size. However, a PRE insertion at bb1 isn't
+; possible because they have different types. So subclasses need to be grouped
+; by the store value operand type in addition to opcode.
 define void @subclass_on_store_value_type_too(i8* %arg) {
 ; CHECK-LABEL: @subclass_on_store_value_type_too(
 ; CHECK-NEXT:  bb:
