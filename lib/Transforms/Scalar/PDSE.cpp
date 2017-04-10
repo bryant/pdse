@@ -1120,6 +1120,10 @@ struct PDSE {
     }
   }
 
+  // For each redundancy class, determine if its memory write location depends
+  // on an SCC induction variable. During post-dom pre-order renaming,
+  // SCC-variant classes are reset to _|_ when crossing the SSA def of that
+  // induction variable.
   void tagSCCIndexedLocs() {
     for (RedIdx Idx = 0; Idx < Worklist.size(); Idx += 1) {
       DEBUG(dbgs() << "Finding SCCs for " << Worklist[Idx] << "\n");
