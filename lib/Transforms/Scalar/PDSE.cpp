@@ -906,21 +906,24 @@ struct PDSE {
   // I could throw, or read and/or modify memory. Examine which redundancy
   // classes it kills.
   void handleMayKill(Instruction &I, RenameState &S) {
-    for (RedIdx Idx = 0; Idx < S.States.size(); Idx += 1)
-      if (S.live(Idx) && Worklist[Idx].KilledByThrow && I.mayThrow()) {
+    for (RedIdx Idx = 0; Idx < S.States.size(); Idx += 1) {
+      CallInst *CI;
+      IntrinsicInst *II;
+      if (((II = dyn_cast<IntrinsicInst>(&I)) &&
+           II->getIntrinsicID() == Intrinsic::lifetime_end) ||
+          (CI = isFreeCall(&I, &TLI))) {
+        auto FreeLoc = II ? MemoryLocation::getForArgument(II, 1, TLI)
+                          : MemoryLocation(CI->getArgOperand(0));
+        if (!S.live(Idx) && AA.isMustAlias(FreeLoc, Worklist[Idx].Loc)) {
+          DEBUG(dbgs() << "Treating as DeadOnExit: " << I << "\n");
+          // Top of Idx's stack is _|_, so set to DeadOnExit because post-dommed
+          // stores directly exposed to this are redundant.
+          DEBUG(dbgs() << "Frees " << Worklist[Idx] << "\n");
+          S.States[Idx] = RenameState::Incoming{&DeadOnExit};
+        } else if (S.live(Idx))
+          updateUpSafety(Idx, S);
+      } else if (S.live(Idx) && Worklist[Idx].KilledByThrow && I.mayThrow()) {
         kill(Idx, S);
-      } else if (CallInst *F = isFreeCall(&I, &TLI)) {
-        // TODO: Perhaps treat free (and lifetime_end) as real occurrences that
-        // !isRemovable and getStoreOp == undef.
-        if (!S.live(Idx)) {
-          DEBUG(dbgs() << "Found free: " << *F << "\n");
-          // Top of Idx's stack is _|_, so set `free` to DeadOnExit because
-          // post-dominated stores directly exposed to this are redundant.
-          if (AA.isMustAlias(F->getArgOperand(0), Worklist[Idx].Loc.Ptr)) {
-            DEBUG(dbgs() << "Frees " << Worklist[Idx] << "\n");
-            S.States[Idx] = RenameState::Incoming{&DeadOnExit};
-          }
-        }
       } else if (S.live(Idx)) {
         ModRefInfo MRI = getModRefInfo(Idx, I);
         if (MRI & MRI_Ref)
@@ -930,6 +933,7 @@ struct PDSE {
           // Aliasing store
           updateUpSafety(Idx, S);
       }
+    }
   }
 
   void dse(RealOcc &Occ, Occurrence &KilledBy) {
