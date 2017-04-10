@@ -57,6 +57,7 @@
 #include "llvm/IR/AssemblyAnnotationWriter.h"
 #include "llvm/IR/IntrinsicInst.h"
 #include "llvm/Pass.h"
+#include "llvm/Support/DebugCounter.h"
 #include "llvm/Support/FormattedStream.h"
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Transforms/Scalar/PDSE.h"
@@ -73,6 +74,9 @@ using namespace llvm;
 
 STATISTIC(NumStores, "Number of stores deleted");
 STATISTIC(NumPartialReds, "Number of partial redundancies converted.");
+
+DEBUG_COUNTER(PartialElimCounter, "pdse-partial-elim",
+              "Controls which redundancy classes are PRE-ed.");
 
 static cl::opt<bool>
     PrintFRG("print-frg", cl::init(false), cl::Hidden,
@@ -1030,6 +1034,9 @@ struct PDSE {
       SSAUpdater StoreVals;
       SSAUpdater StorePtrs;
       for (SubIdx Sub = 0; Sub < Class.numSubclasses(); Sub += 1) {
+        if (!DebugCounter::shouldExecute(PartialElimCounter))
+          continue;
+
         StoreVals.Initialize(Class.Subclasses[Sub]->getStoreOp()->getType(),
                              Class.Subclasses[Sub]->Inst->getName());
         StorePtrs.Initialize(Class.Subclasses[Sub]->getWriteLoc()->getType(),
