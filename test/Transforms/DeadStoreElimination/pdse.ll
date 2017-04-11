@@ -610,9 +610,9 @@ define void @interferes_overwrites(i8* %x, i1 %br0) {
 ; CHECK-NEXT:  bb0:
 ; CHECK-NEXT:    [[Y:%.*]] = bitcast i8* [[X:%.*]] to i64*
 ; CHECK-NEXT:    store i64 0, i64* [[Y]]
-; CHECK-NEXT:    store i8 1, i8* [[X]]
 ; CHECK-NEXT:    br i1 [[BR0:%.*]], label [[BB1:%.*]], label [[BB2:%.*]]
 ; CHECK:       bb1:
+; CHECK-NEXT:    store i8 1, i8* [[X]]
 ; CHECK-NEXT:    br label [[BB3:%.*]]
 ; CHECK:       bb2:
 ; CHECK-NEXT:    store i64 0, i64* [[Y]]
