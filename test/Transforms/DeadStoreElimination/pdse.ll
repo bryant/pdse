@@ -962,37 +962,6 @@ bb4:
   ret void
 }
 
-; Calling `free` equivalent to a DeadOnExit occurrence. TODO: Treat it instead
-; like a volatile real occurrence that `!canDSE()`.
-define void @test_free(i1 %br0) {
-; CHECK-LABEL: @test_free(
-; CHECK-NEXT:  bb0:
-; CHECK-NEXT:    [[X:%.*]] = call i8* @malloc(i32 4)
-; CHECK-NEXT:    br i1 [[BR0:%.*]], label [[BB1:%.*]], label [[BB2:%.*]]
-; CHECK:       bb1:
-; CHECK-NEXT:    call void @free(i8* [[X]])
-; CHECK-NEXT:    br label [[BB3:%.*]]
-; CHECK:       bb2:
-; CHECK-NEXT:    store i8 1, i8* [[X]]
-; CHECK-NEXT:    br label [[BB3]]
-; CHECK:       bb3:
-; CHECK-NEXT:    [[USE:%.*]] = load i8, i8* [[X]]
-; CHECK-NEXT:    ret void
-;
-bb0:
-  %x = call i8* @malloc(i32 4)
-  store i8 1, i8* %x
-  br i1 %br0, label %bb1, label %bb2
-bb1:
-  call void @free(i8* %x)
-  br label %bb3
-bb2:
-  br label %bb3
-bb3:
-  %use = load i8, i8* %x
-  ret void
-}
-
 ; Avoid PRE insertions into catchswitch blocks. In the future, consider
 ; deferring insertion into each catchpad block.
 define void @catchswitch_noninsertable() personality i32 (...)* @personality {
@@ -1179,22 +1148,19 @@ bb0:
   ret i8* %x
 }
 
-; TODO: Treat lifetime_end like a volatile real occurrence -- it can eliminate
-; any exposed must-aliasing store post-dommed by it, but should not be subject
-; to elimination or PRE insertion.
+; Calling `lifetime_end` equivalent to a DeadOnExit occurrence.
 define void @lifetime_end_test(i8* %a, i1 %br0) {
 ; CHECK-LABEL: @lifetime_end_test(
 ; CHECK-NEXT:  bb0:
 ; CHECK-NEXT:    call void @llvm.lifetime.start(i64 1, i8* nonnull [[A:%.*]])
-; CHECK-NEXT:    store i8 23, i8* [[A]]
 ; CHECK-NEXT:    call void @llvm.lifetime.end(i64 1, i8* nonnull [[A]])
 ; CHECK-NEXT:    call void @llvm.lifetime.start(i64 1, i8* nonnull [[A]])
-; CHECK-NEXT:    store i8 29, i8* [[A]]
 ; CHECK-NEXT:    br i1 [[BR0:%.*]], label [[BB1:%.*]], label [[BB2:%.*]]
 ; CHECK:       bb1:
 ; CHECK-NEXT:    call void @llvm.lifetime.end(i64 1, i8* nonnull [[A]])
 ; CHECK-NEXT:    ret void
 ; CHECK:       bb2:
+; CHECK-NEXT:    store i8 29, i8* [[A]]
 ; CHECK-NEXT:    [[TMP:%.*]] = load i8, i8* [[A]]
 ; CHECK-NEXT:    call void @llvm.lifetime.end(i64 1, i8* nonnull [[A]])
 ; CHECK-NEXT:    ret void
@@ -1212,5 +1178,54 @@ bb1:
 bb2:
   %tmp = load i8, i8* %a
   call void @llvm.lifetime.end(i64 1, i8* nonnull %a)
+  ret void
+}
+
+; Calling `free` equivalent to a DeadOnExit occurrence.
+define void @test_free(i8* %x, i1 %br0, i1 %br1) {
+; CHECK-LABEL: @test_free(
+; CHECK-NEXT:  bb0:
+; CHECK-NEXT:    br i1 [[BR0:%.*]], label [[BB1:%.*]], label [[BB2:%.*]]
+; CHECK:       bb1:
+; CHECK-NEXT:    call void @free(i8* [[X:%.*]])
+; CHECK-NEXT:    br label [[BB3:%.*]]
+; CHECK:       bb2:
+; CHECK-NEXT:    store i8 1, i8* [[X]]
+; CHECK-NEXT:    [[Y0:%.*]] = getelementptr i8, i8* [[X]], i32 2
+; CHECK-NEXT:    store i8 1, i8* [[Y0]]
+; CHECK-NEXT:    br label [[BB3]]
+; CHECK:       bb3:
+; CHECK-NEXT:    br i1 [[BR1:%.*]], label [[BB4:%.*]], label [[BB5:%.*]]
+; CHECK:       bb4:
+; CHECK-NEXT:    br label [[BB6:%.*]]
+; CHECK:       bb5:
+; CHECK-NEXT:    [[Y1:%.*]] = getelementptr i8, i8* [[X]], i32 2
+; CHECK-NEXT:    store i8 1, i8* [[Y1]]
+; CHECK-NEXT:    br label [[BB6]]
+; CHECK:       bb6:
+; CHECK-NEXT:    [[USE:%.*]] = load i8, i8* [[X]]
+; CHECK-NEXT:    ret void
+;
+bb0:
+  store i8 1, i8* %x
+  br i1 %br0, label %bb1, label %bb2
+bb1:
+  call void @free(i8* %x)
+  br label %bb3
+bb2:
+  %y0 = getelementptr i8, i8* %x, i32 2
+  store i8 1, i8* %y0
+  ; ^ Can't PRE this down to bb4 because that would introduce a store-after-free
+  br label %bb3
+bb3:
+  br i1 %br1, label %bb4, label %bb5
+bb4:
+  br label %bb6
+bb5:
+  %y1 = getelementptr i8, i8* %x, i32 2
+  store i8 1, i8* %y1
+  br label %bb6
+bb6:
+  %use = load i8, i8* %x
   ret void
 }
