@@ -604,6 +604,36 @@ bb1:
   ret void
 }
 
+; Ensures that PRE of bb0 store to %y is blocked by the store to %x.
+define void @interferes_overwrites(i8* %x, i1 %br0) {
+; CHECK-LABEL: @interferes_overwrites(
+; CHECK-NEXT:  bb0:
+; CHECK-NEXT:    [[Y:%.*]] = bitcast i8* [[X:%.*]] to i64*
+; CHECK-NEXT:    store i8 1, i8* [[X]]
+; CHECK-NEXT:    br i1 [[BR0:%.*]], label [[BB1:%.*]], label [[BB2:%.*]]
+; CHECK:       bb1:
+; CHECK-NEXT:    store i64 0, i64* [[Y]]
+; CHECK-NEXT:    br label [[BB3:%.*]]
+; CHECK:       bb2:
+; CHECK-NEXT:    store i64 0, i64* [[Y]]
+; CHECK-NEXT:    br label [[BB3]]
+; CHECK:       bb3:
+; CHECK-NEXT:    ret void
+;
+bb0:
+  %y = bitcast i8* %x to i64*
+  store i64 0, i64* %y
+  store i8 1, i8* %x
+  br i1 %br0, label %bb1, label %bb2
+bb1:
+  br label %bb3
+bb2:
+  store i64 0, i64* %y
+  br label %bb3
+bb3:
+  ret void
+}
+
 ; Nothing should be inserted. The i64 store should be used by the lambda in bb0.
 define void @no_extra_insert(i8* %a, i1 %br0) {
 ; CHECK-LABEL: @no_extra_insert(
