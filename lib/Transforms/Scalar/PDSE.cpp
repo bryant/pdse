@@ -1185,6 +1185,15 @@ struct PDSE {
   // Insert lambdas at reverse IDF of real occs and aliasing loads.
   void insertLambdas() {
     for (RedIdx Idx = 0; Idx < Worklist.size(); Idx += 1) {
+      // Real occurrences of overwriting class are also occs of smaller class.
+      for (RedIdx OverwrittenIdx : Worklist[Idx].Overwrites) {
+        const SmallPtrSetImpl<BasicBlock *> &IdxDefs = Worklist[Idx].DefBlocks;
+        Worklist[OverwrittenIdx].DefBlocks.insert(IdxDefs.begin(),
+                                                  IdxDefs.end());
+      }
+    }
+
+    for (RedIdx Idx = 0; Idx < Worklist.size(); Idx += 1) {
       // Find kill-only blocks.
       for (BasicBlock &BB : F)
         for (const InstOrReal &I : Blocks[&BB].Insts) {
