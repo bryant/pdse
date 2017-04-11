@@ -837,10 +837,13 @@ struct PDSE {
       if (CachedAliases[Idx] == MustAlias) {
         assert(Worklist[NewIdx].Loc.Size != Worklist[Idx].Loc.Size &&
                "Loc should have been part of redundancy class Idx.");
-        if (Worklist[NewIdx].Loc.Size >= Worklist[Idx].Loc.Size)
+        if (Worklist[NewIdx].Loc.Size >= Worklist[Idx].Loc.Size) {
           Worklist[NewIdx].Overwrites.push_back(Idx);
-        else if (Worklist[NewIdx].Loc.Size <= Worklist[Idx].Loc.Size)
+          Worklist[Idx].Interferes.push_back(NewIdx);
+        } else if (Worklist[NewIdx].Loc.Size <= Worklist[Idx].Loc.Size) {
           Worklist[Idx].Overwrites.push_back(NewIdx);
+          Worklist[NewIdx].Interferes.push_back(Idx);
+        }
       } else if (CachedAliases[Idx] != NoAlias) {
         Worklist[Idx].Interferes.push_back(NewIdx);
         Worklist[NewIdx].Interferes.push_back(Idx);
