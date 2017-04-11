@@ -78,6 +78,8 @@ STATISTIC(NumPartialReds, "Number of partial redundancies converted.");
 DEBUG_COUNTER(PartialElimCounter, "pdse-partial-elim",
               "Controls which redundancy classes are PRE-ed.");
 
+DEBUG_COUNTER(OptThisFunc, "pdse-func", "Selects functions to undergo PDSE.");
+
 static cl::opt<bool>
     PrintFRG("print-frg", cl::init(false), cl::Hidden,
              cl::desc("Print the factored redundancy graph of stores."));
@@ -1266,6 +1268,9 @@ struct PDSE {
   bool run() {
     if (!PDT.getRootNode()) {
       DEBUG(dbgs() << "FIXME: ran into the PDT bug. nothing we can do.\n");
+      return false;
+    } else if (!DebugCounter::shouldExecute(OptThisFunc)) {
+      DEBUG(dbgs() << "Skipping PDSE for " << F.getName() << "\n");
       return false;
     }
 
