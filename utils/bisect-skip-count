@@ -8,7 +8,7 @@ import argparse
 # We do timeouts because when doing, execution testing, we have a habit
 # of finding variants that infinite loop
 if os.name == 'posix' and sys.version_info[0] < 3:
-  import subprocess32 as subprocess
+  import subprocess as subprocess
 else:
   import subprocess
 parser = argparse.ArgumentParser()
@@ -19,8 +19,7 @@ parser.add_argument('--countstart', type=int, default=0)
 parser.add_argument('--countend', type=int, default=(1 << 32))
 parser.add_argument('--timeout', type=int, default=None)
 # Use shell support if you need to use complex shell expressions in your command
-parser.add_argument('--shell', type=bool, default=False)
-parser.add_argument('command', nargs='+')
+parser.add_argument('command')
 
 args = parser.parse_args()
 
@@ -35,10 +34,11 @@ last = None
 while start != end and start != end-1:
     count = start + (end - start)/2
     print("Visiting Skip: %d with (Start, End) = (%d,%d)" % (count, start, end))
-    cmd = [x % {'skip':count, 'count':-1} for x in args.command]
+    cmd = args.command.format(skip=count, count=-1)
+    #cmd = cmd.split()
     print cmd
     try:
-        result = subprocess.call(cmd, shell=args.shell, timeout=args.timeout)
+        result = subprocess.call(cmd, shell=True)
         if result == 0:
            print("    PASSES! Setting end to count")
            end = count
@@ -58,10 +58,10 @@ print("End: %d" % end)
 while start != end and start != end-1:
     count = start + (end - start)/2
     print("Visiting Count: %d with (Start, End) = (%d,%d)" % (count, start, end))
-    cmd = [x % {'count':count, 'skip':firstcount } for x in args.command]
+    cmd = args.command.format(skip=firstcount, count=count)
     print cmd
     try:
-        result = subprocess.call(cmd, shell=args.shell, timeout=args.timeout)
+        result = subprocess.call(cmd, shell=True)
         if result == 0:
            print("    PASSES! Setting start to count")
            start = count
