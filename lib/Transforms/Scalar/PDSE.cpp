@@ -82,6 +82,9 @@ static cl::opt<bool>
     PrintFRG("print-frg", cl::init(false), cl::Hidden,
              cl::desc("Print the factored redundancy graph of stores."));
 
+static cl::opt<bool> PrintClob("print-pdse-clob", cl::init(false), cl::Hidden,
+                               cl::desc("Print clobbers for inserted stores."));
+
 namespace llvm {
 namespace detail {
 // Iterates over the defs of an instruction that are themselves instructions.
@@ -751,6 +754,26 @@ struct FRGAnnot final : public AssemblyAnnotationWriter {
   }
 };
 
+struct ClobAnnot final : public AssemblyAnnotationWriter {
+  AliasAnalysis &AA;
+  const MemoryLocation &Loc;
+
+  ClobAnnot(AliasAnalysis &AA, const MemoryLocation &Loc) : AA(AA), Loc(Loc) {}
+
+  void emitInstructionAnnot(const Instruction *I,
+                            formatted_raw_ostream &OS) override {
+    ModRefInfo MRI = AA.getModRefInfo(I, Loc);
+    if (MRI == MRI_NoModRef)
+      return;
+    OS << "; ";
+    if (MRI & MRI_Mod)
+      OS << "Mod";
+    if (MRI & MRI_Ref)
+      OS << "Ref";
+    OS << " " << Loc << "\n";
+  }
+};
+
 struct PDSE {
   Function &F;
   AliasAnalysis &AA;
@@ -1114,6 +1137,19 @@ struct PDSE {
                   << "\n");
             insertNewOccs(*L, Sub, *Class.Subclasses[Sub], StoreVals, StorePtrs,
                           SplitBlocks);
+          }
+        }
+
+        if (PrintClob) {
+          dbgs() << "Clobbers for " << Class.Loc << ":\n";
+          ClobAnnot C(AA, Class.Loc);
+          F.print(dbgs(), &C);
+
+          if (Class.Subclasses[Sub]->KillLoc.Ptr) {
+            dbgs() << "Clobbers for " << Class.Subclasses[Sub]->KillLoc
+                   << ":\n";
+            ClobAnnot C(AA, Class.Subclasses[Sub]->KillLoc);
+            F.print(dbgs(), &C);
           }
         }
       }
