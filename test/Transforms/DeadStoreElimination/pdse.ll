@@ -1259,3 +1259,101 @@ bb6:
   %use = load i8, i8* %x
   ret void
 }
+
+define void @volatile_handling(i8* %a, i1 %br0, i1 %br1, i8* noalias %b) {
+; CHECK-LABEL: @volatile_handling(
+; CHECK-NEXT:  bb0:
+; CHECK-NEXT:    store volatile i8 3, i8* [[A:%.*]]
+; CHECK-NEXT:    store volatile i8 4, i8* [[A]]
+; CHECK-NEXT:    br i1 [[BR0:%.*]], label [[BB1:%.*]], label [[BB2:%.*]]
+; CHECK:       bb1:
+; CHECK-NEXT:    store volatile i8 1, i8* [[A]]
+; CHECK-NEXT:    br label [[BB3:%.*]]
+; CHECK:       bb2:
+; CHECK-NEXT:    store i8 2, i8* [[A]]
+; CHECK-NEXT:    br label [[BB3]]
+; CHECK:       bb3:
+; CHECK-NEXT:    store volatile i8 3, i8* [[B:%.*]]
+; CHECK-NEXT:    br i1 [[BR1:%.*]], label [[BB4:%.*]], label [[BB5:%.*]]
+; CHECK:       bb4:
+; CHECK-NEXT:    store volatile i8 4, i8* [[B]]
+; CHECK-NEXT:    store i8 4, i8* [[A]]
+; CHECK-NEXT:    ret void
+; CHECK:       bb5:
+; CHECK-NEXT:    ret void
+;
+bb0:
+  store i8 0, i8* %a
+  store volatile i8 3, i8* %a
+  store volatile i8 4, i8* %a
+  store i8 1, i8* %a
+  br i1 %br0, label %bb1, label %bb2
+bb1:
+  store volatile i8 1, i8* %a
+  br label %bb3
+bb2:
+  store i8 2, i8* %a
+  br label %bb3
+bb3:
+  store volatile i8 3, i8* %b
+  br i1 %br1, label %bb4, label %bb5
+bb4:
+  store volatile i8 4, i8* %b
+  store i8 4, i8* %a
+  ret void
+bb5:
+  ret void
+}
+
+define void @atomic_handling(i8* %a, i1 %br0, i1 %br1, i1 %br2) {
+; CHECK-LABEL: @atomic_handling(
+; CHECK-NEXT:  bb0:
+; CHECK-NEXT:    store atomic i8 1, i8* [[A:%.*]] seq_cst, align 1
+; CHECK-NEXT:    br i1 [[BR0:%.*]], label [[BB1:%.*]], label [[BB2:%.*]]
+; CHECK:       bb1:
+; CHECK-NEXT:    br label [[BB3:%.*]]
+; CHECK:       bb2:
+; CHECK-NEXT:    store atomic i8 1, i8* [[A]] seq_cst, align 1
+; CHECK-NEXT:    br label [[BB3]]
+; CHECK:       bb3:
+; CHECK-NEXT:    br i1 [[BR1:%.*]], label [[BB4:%.*]], label [[BB5:%.*]]
+; CHECK:       bb4:
+; CHECK-NEXT:    br label [[BB5]]
+; CHECK:       bb5:
+; CHECK-NEXT:    br i1 [[BR2:%.*]], label [[BB6:%.*]], label [[BB5_BB7_CRIT_EDGE:%.*]]
+; CHECK:       bb5.bb7_crit_edge:
+; CHECK-NEXT:    store atomic i8 5, i8* [[A]] unordered, align 1
+; CHECK-NEXT:    br label [[BB7:%.*]]
+; CHECK:       bb6:
+; CHECK-NEXT:    store i8 5, i8* [[A]]
+; CHECK-NEXT:    br label [[BB7]]
+; CHECK:       bb7:
+; CHECK-NEXT:    ret void
+;
+bb0:
+  store atomic i8 0, i8* %a unordered, align 1
+  store atomic i8 1, i8* %a seq_cst, align 1
+  br i1 %br0, label %bb1, label %bb2
+bb1:
+  store i8 2, i8* %a
+  br label %bb3
+bb2:
+  store atomic i8 1, i8* %a unordered, align 1
+  ; ^ Cannot be PRE-ed into bb3 because of the non-atomic store in bb1.
+  store atomic i8 1, i8* %a seq_cst, align 1
+  br label %bb3
+bb3:
+  br i1 %br1, label %bb4, label %bb5
+bb4:
+  store i8 4, i8* %a
+  br label %bb5
+bb5:
+  store atomic i8 5, i8* %a unordered, align 1
+  ; ^ Can PRE
+  br i1 %br2, label %bb6, label %bb7
+bb6:
+  store i8 5, i8* %a
+  br label %bb7
+bb7:
+  ret void
+}
