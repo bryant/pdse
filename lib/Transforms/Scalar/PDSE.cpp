@@ -1306,6 +1306,8 @@ struct PDSE {
       for (Use &U : Dead->operands()) {
         Instruction *Op = dyn_cast<Instruction>(U);
         U.set(nullptr);
+        // TODO: Will call isInstructionTriviallyDead more than once on
+        // instruction that are multiply used by Dead.
         if (Op && isInstructionTriviallyDead(Op, &TLI))
           DeadStores.push_front(Op);
       }
