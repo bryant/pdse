@@ -70,6 +70,8 @@
 
 #define DEBUG_TYPE "pdse"
 
+#define PROFILE_POINT __attribute__((noinline))
+
 using namespace llvm;
 
 STATISTIC(NumStores, "Number of stores deleted");
@@ -894,7 +896,7 @@ struct PDSE {
     S.States[Idx] = {nullptr};
   }
 
-  void handleRealOcc(RealOcc &Occ, RenameState &S) {
+  void handleRealOcc(RealOcc &Occ, RenameState &S) PROFILE_POINT {
     DEBUG(dbgs() << "Hit a new occ: " << Occ << "\n");
     if (!S.live(Occ.Class)) {
       DEBUG(dbgs() << "Setting to new repr of " << Worklist[Occ.Class] << "\n");
@@ -933,7 +935,7 @@ struct PDSE {
 
   // I could throw, or read and/or modify memory. Examine which redundancy
   // classes it kills.
-  void handleMayKill(Instruction &I, RenameState &S) {
+  void handleMayKill(Instruction &I, RenameState &S) PROFILE_POINT {
     for (RedIdx Idx = 0; Idx < S.States.size(); Idx += 1) {
       CallInst *CI;
       IntrinsicInst *II;
@@ -974,7 +976,7 @@ struct PDSE {
     DeadStores.push_front(Occ.Inst);
   }
 
-  RenameState renameBlock(BasicBlock &BB, RenameState S) {
+  RenameState renameBlock(BasicBlock &BB, RenameState S) PROFILE_POINT {
     DEBUG(dbgs() << "Entering block " << BB.getName() << "\n");
     // Set repr occs to lambdas, if present.
     for (LambdaOcc &L : Blocks[&BB].Lambdas)
@@ -1014,7 +1016,7 @@ struct PDSE {
     return S;
   }
 
-  void renamePass() {
+  void renamePass() PROFILE_POINT {
     struct Entry {
       DomTreeNode *Node;
       DomTreeNode::iterator ChildIt;
@@ -1096,7 +1098,7 @@ struct PDSE {
         insert(Op.Succ);
   }
 
-  void convertPartialReds() {
+  void convertPartialReds() PROFILE_POINT {
     SplitEdgeMap SplitBlocks;
     for (RedClass &Class : Worklist) {
       // Determine PRE-ability of this class' lambdas.
@@ -1165,7 +1167,7 @@ struct PDSE {
   // on an SCC induction variable. During post-dom pre-order renaming,
   // SCC-variant classes are reset to _|_ when crossing the SSA def of that
   // induction variable.
-  void tagSCCIndexedLocs() {
+  void tagSCCIndexedLocs() PROFILE_POINT {
     for (RedIdx Idx = 0; Idx < Worklist.size(); Idx += 1) {
       DEBUG(dbgs() << "Finding SCCs for " << Worklist[Idx] << "\n");
       if (auto *Def = dyn_cast<Instruction>(Worklist[Idx].Loc.Ptr))
@@ -1185,7 +1187,7 @@ struct PDSE {
   }
 
   // Insert lambdas at reverse IDF of real occs and aliasing loads.
-  void insertLambdas() {
+  void insertLambdas() PROFILE_POINT {
     for (RedIdx Idx = 0; Idx < Worklist.size(); Idx += 1) {
       // Real occurrences of overwriting class can def those of smaller class.
       // See note in handleRealOcc.
@@ -1251,7 +1253,7 @@ struct PDSE {
   }
 
   // Collect real occs and track their basic blocks.
-  void collectOccurrences() {
+  void collectOccurrences() PROFILE_POINT {
     EscapeTracker Tracker(F, TLI);
     DenseMap<MemoryLocation, RedIdx> BelongsToClass;
 
