@@ -393,7 +393,6 @@ struct LambdaOcc final : public Occurrence {
   std::vector<LambdaUse> LambdaUses;
   // ^ These lambdas either directly use this lambda, or use a real use of this
   // lambda. Needed to propagate `CanBeAnt` and `Earlier`.
-  DenseSet<const BasicBlock *> AddedSuccs;
 
   struct SubFlags {
     // Consult the Kennedy et al. paper for these.
@@ -416,23 +415,19 @@ struct LambdaOcc final : public Occurrence {
   LambdaOcc(unsigned ID, BasicBlock &Block, RedIdx Class,
             unsigned NumSubclasses)
       : Occurrence{ID, Class, OccTy::Lambda}, Block(&Block), Operands(),
-        NullOperands(), Uses(), LambdaUses(), AddedSuccs(),
-        Flags(NumSubclasses) {}
+        NullOperands(), Uses(), LambdaUses(), Flags(NumSubclasses) {}
 
   void addUse(RealOcc &Occ) { Uses.push_back({&Occ}); }
 
   void addUse(LambdaOcc &L, size_t OpIdx) { LambdaUses.emplace_back(L, OpIdx); }
 
   LambdaOcc &addOperand(BasicBlock &Succ, Occurrence *ReprOcc) {
-    if (!AddedSuccs.count(&Succ)) {
-      if (ReprOcc) {
-        Operands.emplace_back(Succ, *ReprOcc);
-        if (LambdaOcc *L = Operands.back().getLambda())
-          L->addUse(*this, Operands.size() - 1);
-      } else
-        NullOperands.push_back(&Succ);
-      AddedSuccs.insert(&Succ);
-    }
+    if (ReprOcc) {
+      Operands.emplace_back(Succ, *ReprOcc);
+      if (LambdaOcc *L = Operands.back().getLambda())
+        L->addUse(*this, Operands.size() - 1);
+    } else
+      NullOperands.push_back(&Succ);
     return *this;
   }
 
@@ -1098,11 +1093,20 @@ struct PDSE {
     // - the operand is _|_; or has_real_use is false for the operand, and the
     //   operand is defined by a phi that does not satisfy will_be_avail."
     assert(L.willBeAnt(Sub) && "Can only PRE across willBeAnt lambdas.");
+
+    // Insert only once per unique successors of L.Block.
+    DenseSet<const BasicBlock *> AlreadyInserted;
     for (BasicBlock *Succ : L.NullOperands)
-      insert(Succ);
+      if (!AlreadyInserted.count(Succ)) {
+        insert(Succ);
+        AlreadyInserted.insert(Succ);
+      }
     for (LambdaOcc::Operand &Op : L.Operands)
-      if (!Op.hasRealUse() && Op.getLambda() && !Op.getLambda()->willBeAnt(Sub))
+      if (!Op.hasRealUse() && Op.getLambda() &&
+          !Op.getLambda()->willBeAnt(Sub) && !AlreadyInserted.count(Op.Succ)) {
         insert(Op.Succ);
+        AlreadyInserted.insert(Op.Succ);
+      }
   }
 
   void convertPartialReds() PROFILE_POINT {
