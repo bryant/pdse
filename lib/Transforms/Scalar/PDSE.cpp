@@ -505,9 +505,12 @@ struct RedClass {
 
   SmallPtrSet<BasicBlock *, 8> DefBlocks;
 
+  unsigned NumOcc;
+
   RedClass(MemoryLocation Loc, bool KilledByThrow, bool DeadOnExit)
       : Loc(std::move(Loc)), KilledByThrow(KilledByThrow),
-        DeadOnExit(DeadOnExit), Lambdas(), Subclasses(), DefBlocks() {}
+        DeadOnExit(DeadOnExit), Lambdas(), Subclasses(), DefBlocks(),
+        NumOcc(0) {}
 
 private:
   using LambdaStack = SmallVector<LambdaOcc *, 16>;
@@ -1250,6 +1253,8 @@ struct PDSE {
     } else
       R.setClass(Idx, std::distance(Worklist[Idx].Subclasses.begin(), SubIt));
 
+    Worklist[Idx].NumOcc += 1;
+
     DEBUG(dbgs() << "Added " << R << "\n\tto subclass " << *R.Inst << "\n\tof "
                  << Worklist[Idx] << "\n");
   }
@@ -1287,8 +1292,8 @@ struct PDSE {
 
     if (PrintFRG) {
       for (RedIdx Idx = 0; Idx < Worklist.size(); Idx += 1) {
-        dbgs() << "Class " << Idx << ": " << Worklist[Idx].Loc
-               << "\n\tOverwrites:";
+        dbgs() << "Class " << Idx << ": " << Worklist[Idx].Loc << "\n\t"
+               << Worklist[Idx].NumOcc << " Stores\n\tOverwrites:";
         for (RedIdx Ov : Worklist[Idx].Overwrites)
           dbgs() << " " << Ov;
         dbgs() << "\n\tInterferes:";
