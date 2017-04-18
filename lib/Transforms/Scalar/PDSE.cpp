@@ -492,6 +492,8 @@ struct RedClass {
   // ^ Indices of redundancy classes that this class can DSE.
   std::vector<RedIdx> Interferes;
   // ^ Indices of redundancy classes that may-alias this class.
+  std::vector<RedIdx> OverwrittenBy;
+  // ^ Indices of redundancy classes that overwrites this class.
   bool KilledByThrow;
   bool DeadOnExit;
   std::vector<LambdaOcc *> Lambdas;
@@ -843,10 +845,10 @@ struct PDSE {
                "Loc should have been part of redundancy class Idx.");
         if (Worklist[NewIdx].Loc.Size >= Worklist[Idx].Loc.Size) {
           Worklist[NewIdx].Overwrites.push_back(Idx);
-          Worklist[Idx].Interferes.push_back(NewIdx);
+          Worklist[Idx].OverwrittenBy.push_back(NewIdx);
         } else if (Worklist[NewIdx].Loc.Size <= Worklist[Idx].Loc.Size) {
           Worklist[Idx].Overwrites.push_back(NewIdx);
-          Worklist[NewIdx].Interferes.push_back(Idx);
+          Worklist[NewIdx].OverwrittenBy.push_back(Idx);
         }
       } else if (CachedAliases[Idx] != NoAlias) {
         Worklist[Idx].Interferes.push_back(NewIdx);
@@ -909,6 +911,8 @@ struct PDSE {
 
     // Examine interactions with its store loc.
     for (RedIdx Idx : Worklist[Occ.Class].Interferes)
+      updateUpSafety(Idx, S);
+    for (RedIdx Idx : Worklist[Occ.Class].OverwrittenBy)
       updateUpSafety(Idx, S);
     for (RedIdx Idx : Worklist[Occ.Class].Overwrites)
       if (!S.live(Idx)) {
@@ -1191,14 +1195,12 @@ struct PDSE {
     for (RedIdx Idx = 0; Idx < Worklist.size(); Idx += 1) {
       // Real occurrences of overwriting class can def those of smaller class.
       // See note in handleRealOcc.
-      for (RedIdx OverwrittenIdx : Worklist[Idx].Overwrites) {
-        const SmallPtrSetImpl<BasicBlock *> &IdxDefs = Worklist[Idx].DefBlocks;
-        Worklist[OverwrittenIdx].DefBlocks.insert(IdxDefs.begin(),
-                                                  IdxDefs.end());
+      for (RedIdx OverwriteIdx : Worklist[Idx].OverwrittenBy) {
+        const SmallPtrSetImpl<BasicBlock *> &ODefs =
+            Worklist[OverwriteIdx].DefBlocks;
+        Worklist[Idx].DefBlocks.insert(ODefs.begin(), ODefs.end());
       }
-    }
 
-    for (RedIdx Idx = 0; Idx < Worklist.size(); Idx += 1) {
       // Find kill-only blocks.
       for (BasicBlock &BB : F)
         for (const InstOrReal &I : Blocks[&BB].Insts) {
