@@ -1286,9 +1286,6 @@ struct PDSE {
 
     collectOccurrences();
     insertLambdas();
-    tagSCCIndexedLocs();
-    renamePass();
-    convertPartialReds();
 
     if (PrintFRG) {
       for (RedIdx Idx = 0; Idx < Worklist.size(); Idx += 1) {
@@ -1302,7 +1299,13 @@ struct PDSE {
         dbgs() << "\n\tKilledByThrow: " << Worklist[Idx].KilledByThrow
                << ", DeadOnExit: " << Worklist[Idx].DeadOnExit << "\n";
       }
+    }
 
+    tagSCCIndexedLocs();
+    renamePass();
+    convertPartialReds();
+
+    if (PrintFRG) {
       dbgs() << "Factored redundancy graph for " << F.getName() << ":\n";
       FRGAnnot Annot(Worklist, Blocks, InstMap);
       F.print(dbgs(), &Annot);
