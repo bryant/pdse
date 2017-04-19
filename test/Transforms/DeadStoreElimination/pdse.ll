@@ -253,6 +253,35 @@ bb3:
   ret void
 }
 
+; Should DSE the bb0 memcpy because it's post-dommed by the bb0 lambda which has
+; no _|_ operands.
+define void @no_pre_but_still_dse(i8* %a, i8* noalias %b, i1 %br0) {
+; CHECK-LABEL: @no_pre_but_still_dse(
+; CHECK-NEXT:  bb0:
+; CHECK-NEXT:    call void @llvm.memcpy.p0i8.p0i8.i64(i8* [[A:%.*]], i8* [[B:%.*]], i64 64, i32 8, i1 false)
+; CHECK-NEXT:    br i1 [[BR0:%.*]], label [[BB1:%.*]], label [[BB2:%.*]]
+; CHECK:       bb1:
+; CHECK-NEXT:    call void @llvm.memcpy.p0i8.p0i8.i64(i8* [[A]], i8* [[B]], i64 64, i32 8, i1 false)
+; CHECK-NEXT:    br label [[BB3:%.*]]
+; CHECK:       bb2:
+; CHECK-NEXT:    call void @llvm.memcpy.p0i8.p0i8.i64(i8* [[A]], i8* [[B]], i64 64, i32 8, i1 false)
+; CHECK-NEXT:    br label [[BB3]]
+; CHECK:       bb3:
+; CHECK-NEXT:    ret void
+;
+bb0:
+  call void @llvm.memcpy.p0i8.p0i8.i64(i8* %a, i8* %b, i64 64, i32 8, i1 false)
+  br i1 %br0, label %bb1, label %bb2
+bb1:
+  call void @llvm.memcpy.p0i8.p0i8.i64(i8* %a, i8* %b, i64 64, i32 8, i1 false)
+  br label %bb3
+bb2:
+  call void @llvm.memcpy.p0i8.p0i8.i64(i8* %a, i8* %b, i64 64, i32 8, i1 false)
+  br label %bb3
+bb3:
+  ret void
+}
+
 ; http://i.imgur.com/abuFdZ2.png
 define void @multiple_pre(i8* %a, i8 %b, i1 %c, i1 %d) {
 ; CHECK-LABEL: @multiple_pre(
