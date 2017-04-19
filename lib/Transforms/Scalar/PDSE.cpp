@@ -400,7 +400,12 @@ struct LambdaOcc final : public Occurrence {
     bool CanBeAnt;
     bool Earlier;
 
-    SubFlags() : UpSafe(true), CanBeAnt(true), Earlier(true) {}
+    bool FullyRed;
+    // ^ True iff this lambda is fully redundant, i.e., its real uses can be
+    // eliminated without PRE insertion because a store to the redundancy class
+    // is already anticipated on all paths to exit.
+
+    SubFlags() : UpSafe(true), CanBeAnt(true), Earlier(true), FullyRed(true) {}
   };
 
   std::vector<SubFlags> Flags;
@@ -411,6 +416,8 @@ struct LambdaOcc final : public Occurrence {
   bool canBeAnt(SubIdx Sub) const { return Flags[Sub].CanBeAnt; }
 
   bool earlier(SubIdx Sub) const { return Flags[Sub].Earlier; }
+
+  bool fullyRed(SubIdx Sub) const { return Flags[Sub].FullyRed; }
 
   LambdaOcc(unsigned ID, BasicBlock &Block, RedIdx Class,
             unsigned NumSubclasses)
@@ -449,6 +456,8 @@ struct LambdaOcc final : public Occurrence {
   }
 
   void resetEarlier(SubIdx Sub) { Flags[Sub].Earlier = false; }
+
+  void resetFullyRed(SubIdx Sub) { Flags[Sub].FullyRed = false; }
 
   bool willBeAnt(SubIdx Sub) const {
     return Flags[Sub].CanBeAnt && !Flags[Sub].Earlier;
@@ -599,8 +608,7 @@ public:
   RedClass &computeWillBeAnt() {
     if (Lambdas.size() > 0) {
       for (SubIdx Sub = 0; Sub < numSubclasses(); Sub += 1)
-        if (Subclasses[Sub]->canPRE())
-          computeWillBeAnt(Sub);
+        computeWillBeAnt(Sub);
     }
     return *this;
   }
@@ -615,6 +623,20 @@ public:
 
   friend raw_ostream &operator<<(raw_ostream &O, const RedClass &Class) {
     return O << Class.Loc;
+  }
+
+  RedClass &computeFullyRed(SubIdx Sub) {
+    auto push = [&](LambdaOcc &L, LambdaStack &Stack) {
+      L.resetFullyRed(Sub);
+      for (LambdaOcc::LambdaUse &Use : L.LambdaUses)
+        if (!Use.getOp().hasRealUse() && Use.L->fullyRed(Sub))
+          Stack.push_back(Use.L);
+    };
+    auto initialCond = [&](LambdaOcc &L) { return !L.NullOperands.empty(); };
+    auto alreadyTraversed = [&](LambdaOcc &L) { return !L.fullyRed(Sub); };
+
+    depthFirst(push, initialCond, alreadyTraversed);
+    return *this;
   }
 };
 
@@ -1112,17 +1134,28 @@ struct PDSE {
   void convertPartialReds() PROFILE_POINT {
     SplitEdgeMap SplitBlocks;
     for (RedClass &Class : Worklist) {
-      // Determine PRE-ability of this class' lambdas.
-      Class.computeWillBeAnt();
-
       // TODO: Iterate by lambda, not subclass, as the current way will iterate
       // over the same lambda (and its defs) multiple times.
       SSAUpdater StoreVals;
       SSAUpdater StorePtrs;
       for (SubIdx Sub = 0; Sub < Class.numSubclasses(); Sub += 1) {
-        if (!DebugCounter::shouldExecute(PartialElimCounter) ||
-            !Class.Subclasses[Sub]->canPRE())
+        if (!DebugCounter::shouldExecute(PartialElimCounter))
           continue;
+
+        // If this stores of this subclass cannot be inserted by PRE, compute
+        // lambdas that are fully redundant, and DSE their uses.
+        if (!Class.Subclasses[Sub]->canPRE()) {
+          Class.computeFullyRed(Sub);
+          for (LambdaOcc *L : Class.Lambdas)
+            for (RealOcc *Use : L->Uses)
+              if (L->fullyRed(Sub) && Use->Subclass == Sub &&
+                  Use->isRemovable())
+                dse(*Use, *L);
+          continue;
+        }
+
+        // Determine PRE-ability of this class' lambdas.
+        Class.computeWillBeAnt(Sub);
 
         StoreVals.Initialize(Class.Subclasses[Sub]->getStoreOp()->getType(),
                              Class.Subclasses[Sub]->Inst->getName());
